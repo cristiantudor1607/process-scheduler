@@ -377,18 +377,21 @@ impl Scheduler for RoundRobinScheduler {
             return SchedulingDecision::Done;
         }
 
-        if let Some(mut proc) = self.running {
+        if let Some(proc) = self.running {
             // Case 1: It cannot continue running
             if proc.time_payload < self.min_time {
                 self.enqueue_process(proc);
 
                 self.dequeue_ready_process();
 
+                if let Some(mut ready_proc) = self.running {
+                    ready_proc.run();
+                    ready_proc.load_payload(self.quanta.get());
+                    self.running = Some(ready_proc);
+                }
+
                 // Because it enqueues and then dequeues from the same queue,
                 // it's safe to use unwrap
-                self.running.unwrap().run();
-                self.running.unwrap().load_payload(self.quanta.get());
-                
                 return SchedulingDecision::Run {
                     pid: self.running.unwrap().pid,
                     timeslice: self.quanta,
