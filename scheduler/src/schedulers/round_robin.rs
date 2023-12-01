@@ -187,23 +187,30 @@ impl RoundRobinScheduler {
 
         // Update the running process
         if let Some(mut pcb) = self.running {
-            pcb.total_time = self.timestamp - pcb.arrival_time;
+            println!("pid: {:?}", pcb.pid);
+            println!("timestamp: {}", self.timestamp);
+            println!("arrival_time: {}", pcb.arrival_time);
+            
+            pcb.total_time = self.timestamp - pcb.arrival_time - 1;
             self.running = Some(pcb);
         }
 
         // Update the processes from ready queue
         for item in self.ready.iter_mut() {
-            item.total_time = self.timestamp - item.arrival_time;
+            println!("pid: {:?}", item.pid);
+            println!("timestamp: {}", self.timestamp);
+            println!("arrival_time: {}", item.arrival_time);
+            item.total_time = self.timestamp - item.arrival_time - 1;
         }
 
         // Update the processes from sleeping vec
         for item in self.sleeping.iter_mut() {
-            item.0.total_time = self.timestamp - item.0.arrival_time;
+            item.0.total_time = self.timestamp - item.0.arrival_time - 1;
         }
 
         // Update the processes from waiting vec
         for item in self.waiting.iter_mut() {
-            item.0.total_time = self.timestamp - item.0.arrival_time;
+            item.0.total_time = self.timestamp - item.0.arrival_time - 1;
         }
     }
 
@@ -256,7 +263,8 @@ impl RoundRobinScheduler {
     /// Enqueues the process sent as parameter to the readt queue
     /// 
     /// * `proc` - process to be enqueued
-    fn enqueue_process(&mut self, proc: RoundRobinPCB) {
+    fn enqueue_process(&mut self, mut proc: RoundRobinPCB) {
+        proc.set_state(ProcessState::Ready);
         self.ready.push_back(proc);
     }
 
@@ -289,16 +297,20 @@ impl Scheduler for RoundRobinScheduler {
 
                     // Update the timestamp, which will become the arrival time of
                     // the new process
-                    let used_time = self.quanta.get() - remaining;
+                    let used_time = self.quanta.get() - remaining - 1;
                     self.update_timestamp(used_time);
 
                     // Spawn the new process
                     new_proc = self.fork(self.timestamp);
+
+                    // The fork got one more unit of time
+                    self.update_timestamp(1);
                 } else {
                     // The Fork that creates the process with PID 1 at timestamp 0
 
                     // Spawn the process with PID 1 at time 0
                     new_proc = self.fork(0);
+                    self.update_timestamp(1);
                     // TODO: s-ar putea sa fie nevoie sa adaug 1
                 }
 
