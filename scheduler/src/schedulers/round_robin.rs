@@ -187,6 +187,18 @@ impl RoundRobinScheduler {
     fn dequeue_ready_process(&mut self) {
         self.running = self.ready.pop_front();
     }
+
+    /// Destroys the running process and returns Ok, if there is a process
+    /// running, otherwise returns an Err
+    fn destroy_running_process(&mut self) -> Result<(), ()>{
+        return if let Some(_) = self.running {
+            self.running = None;
+
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
 }
 
 impl Scheduler for RoundRobinScheduler {
@@ -199,7 +211,11 @@ impl Scheduler for RoundRobinScheduler {
             if let Syscall::Fork(_) = syscall {
                 let new_proc: RoundRobinPCB;
 
-                if let Some(_) = self.running {
+                if let Some(mut pcb) = self.running {
+                    // Count the syscalls
+                    pcb.syscall();
+                    self.running = Some(pcb);
+
                     // Save the timing for next scheduling decision
                     self.unused_time = remaining;
                     // Spawn new process
@@ -213,14 +229,22 @@ impl Scheduler for RoundRobinScheduler {
             }
 
             if let Syscall::Exit = syscall {
-
+                if let Ok(()) = self.destroy_running_process() {
+                    return SyscallResult::Success;
+                } else {
+                    return SyscallResult::NoRunningProcess;
+                }
             }
         }
 
         // If the process wasn't interrupted by a syscall, then it's time expired
         if let Some(mut pcb) = self.running {
+            // Set the unused_time
             self.unused_time = 0;
+            
+            // Add execution_time
             pcb.execute(self.quanta.get());
+            self.running = Some(pcb);
 
             // It should always return Ok
             self.enqueue_running_process().unwrap();
@@ -242,6 +266,8 @@ impl Scheduler for RoundRobinScheduler {
             if let Some(mut pcb) = self.running {
                 // Run the process
                 pcb.run();
+                self.running = Some(pcb);
+
                 return SchedulingDecision::Run {
                     pid: pcb.pid,
                     timeslice: self.quanta };
@@ -277,6 +303,8 @@ impl Scheduler for RoundRobinScheduler {
             // TODO: add unwrap here
             if let Some(mut pcb) = self.running {
                 pcb.run();
+                self.running = Some(pcb);
+                
                 return SchedulingDecision::Run {
                     pid: pcb.pid,
                     timeslice: self.quanta,

@@ -6,22 +6,28 @@ use processor::Processor;
 
 fn main() {
     println!("Am inceout testul");
-    let logs = Processor::run(round_robin(NonZeroUsize::new(2).unwrap(), 1), |process| {
-        process.exec();
-        process.exec();
-        process.exec();
-        process.exec();
-        process.fork(
-            |process| {
-                process.exec();
-                process.exec();
-                process.wait(1);
-            },
-            0,
-        );
-        process.sleep(10);
-        process.signal(1);
-        process.exec();
+    // let logs = Processor::run(round_robin(NonZeroUsize::new(2).unwrap(), 1), |process| {
+    //     process.exec();
+    //     process.exec();
+    //     process.exec();
+    //     process.exec();
+    //     process.fork(
+    //         |process| {
+    //             process.exec();
+    //             process.exec();
+    //             process.wait(1);
+    //         },
+    //         0,
+    //     );
+    //     process.sleep(10);
+    //     process.signal(1);
+    //     process.exec();
+    // });
+
+    let logs = Processor::run(round_robin(NonZeroUsize::new(3).unwrap(), 1), | process | {
+        for _ in 0..5 {
+            process.exec();
+        }
     });
 
     println!("{}", format_logs(&logs));
