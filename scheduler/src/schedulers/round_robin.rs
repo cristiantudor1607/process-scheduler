@@ -15,6 +15,9 @@ pub struct RoundRobinPCB {
 	syscall_time: usize,
     /// The time that process spent sleeping
 	sleep_time: usize,
+    /// The number of syscalls that stopped the process in a time
+    /// quanta, while being in state `running`
+    syscalls_at_runtime: usize,
 }
 
 impl RoundRobinPCB {
@@ -28,6 +31,7 @@ impl RoundRobinPCB {
             exec_time: 0,
             syscall_time: 0,
             sleep_time: 0,
+            syscalls_at_runtime: 0,
         }
     }
 
@@ -62,7 +66,14 @@ impl RoundRobinPCB {
 	/// Counts a new syscall
 	fn syscall(&mut self) {
 		self.syscall_time += 1;
+        self.syscalls_at_runtime += 1;
 	}
+
+    /// Resets the `syscalls_at_runtime` field of the process control block
+    fn reset_runtime_syscalls(&mut self) {
+        self.syscalls_at_runtime = 0;
+    }
+
 }
 
 impl Process for RoundRobinPCB {
@@ -242,12 +253,18 @@ impl Scheduler for RoundRobinScheduler {
             // Set the unused_time
             self.unused_time = 0;
             
-            // Add execution_time
-            pcb.execute(self.quanta.get());
+            // Calculate and add the execution time
+            let exec_time = self.quanta.get() - pcb.syscalls_at_runtime;
+            pcb.execute(exec_time);
+
+            // Reset the runtime syscalls
+            pcb.reset_runtime_syscalls();
+
             self.running = Some(pcb);
 
-            // It should always return Ok
-            self.enqueue_running_process().unwrap();
+            // Enqueue the running process. It will always return Ok, 'cause
+            // it can't reach this point if there's no process running
+            _ = self.enqueue_running_process();
             return SyscallResult::Success;
         }
 
@@ -284,16 +301,18 @@ impl Scheduler for RoundRobinScheduler {
             // Reset the `unused_time`
             self.unused_time = 0;
 
-            // First, update the timinigs
-            // If it panics, then there is a big problem with the program's
-            // logic. The `unused_time` results from a running process. If
-            // there was no running process, then the `unused_time` should equal 0
-            self.running.unwrap().execute(used_time);
+            // It will always enter here, because the `unused_time` cannot be
+            // > 0 if there isn't a process running
+            if let Some(mut pcb) = self.running {
+                let exec_time = used_time - pcb.syscalls_at_runtime;
+                pcb.execute(exec_time);
+                pcb.reset_runtime_syscalls();
+                self.running = Some(pcb);
+            }
 
-            // Then, enqueue the running process
-            // It should always returns Ok. If not, there is a mistake in program's 
-            // logic. A process that wasn't running can't have unused_time greater
-            // than 0
+            // Enqueue the running process. In our case, it will always return Ok,
+            // because the `unused_time` is 0 if there isn't a process running at the
+            // time next method is called
             self.enqueue_running_process().unwrap();
 
             // Dequeue the next process
@@ -304,7 +323,7 @@ impl Scheduler for RoundRobinScheduler {
             if let Some(mut pcb) = self.running {
                 pcb.run();
                 self.running = Some(pcb);
-                
+
                 return SchedulingDecision::Run {
                     pid: pcb.pid,
                     timeslice: self.quanta,
