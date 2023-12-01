@@ -161,11 +161,10 @@ pub struct RoundRobinScheduler {
     min_time: usize,
     /// The pid of the next process that will be spawned
     next_pid: Pid,
-    /// The time that the last process didn't use from it's quanta, before being interrupted
-    /// by a syscall
-    unused_time: usize,
     /// Current time since process with PID 1 started
     timestamp: usize,
+    /// If the process with PID 1 is killed, panicd is activated
+    panicd: bool,
 }
 
 impl RoundRobinScheduler {
@@ -178,8 +177,8 @@ impl RoundRobinScheduler {
             quanta: timeslice,
             min_time: minimum_remaining_timeslice,
             next_pid: Pid::new(1),
-            unused_time: 0,
             timestamp: 0,
+            panicd: false,
 		}
 	}
 
@@ -255,7 +254,12 @@ impl RoundRobinScheduler {
     /// It kills the running process and returns Success, if it exists, otherwise
     /// it does nothing and returns NoRunningProcess
     fn kill_running_process(&mut self) -> SyscallResult {
-        return if let Some(_) = self.running {
+        return if let Some(proc) = self.running {
+            // Warn about a potential panic
+            if proc.pid == Pid::new(1) {
+                self.panicd = true;
+            }
+
             self.running = None;
             SyscallResult::Success
         } else {
@@ -276,6 +280,24 @@ impl RoundRobinScheduler {
     /// The method does not modify the `ready` state of the process
     fn dequeue_ready_process(&mut self) {
         self.running = self.ready.pop_front();
+    }
+
+    /// Checks if the parent process was killed, and his children still exist,
+    /// a case of panic
+    fn is_panicd(&self) -> bool {
+        if !self.panicd {
+            return  false;
+        }
+
+        if !self.ready.is_empty() || !self.sleeping.is_empty() || !self.waiting.is_empty() {
+            return true;
+        }
+
+        if let Some(_) = self.running {
+            return true;
+        }
+
+        return false;
     }
 
 }
@@ -355,6 +377,12 @@ impl Scheduler for RoundRobinScheduler {
         
         // If the last running process expired, then running is None
         if let None = self.running {
+            // There is a possibility that running is None and the process with
+            // PID 1 is gone
+            if self.is_panicd()  {
+                return SchedulingDecision::Panic;
+            }
+            
             self.dequeue_ready_process();
 
             // If there was at least one process in the ready queue 
@@ -373,6 +401,7 @@ impl Scheduler for RoundRobinScheduler {
             }
 
             // At this point the ready queue  was empty before trying to dequeue a process
+
             // TODO: Check for a deadlock
             return SchedulingDecision::Done;
         }

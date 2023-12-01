@@ -23,9 +23,17 @@ fn main() {
     //     process.exec();
     // });
 
-    let logs = Processor::run(round_robin(NonZeroUsize::new(3).unwrap(), 3), | process | {
+    let logs = Processor::run(round_robin(NonZeroUsize::new(5).unwrap(), 2), | process | {
         process.fork(
             |process| {
+                process.fork(
+                    |process| {
+                        for _ in 0..5 {
+                            process.exec();
+                        }
+                    },
+                    0,
+                );
                 for _ in 0..5 {
                     process.exec();
                 }
