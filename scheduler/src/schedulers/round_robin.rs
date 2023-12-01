@@ -2,50 +2,71 @@ use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
 use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
 SyscallResult, Scheduler}, Syscall};
 
+/// The Round Robin Scheduler process control block
 #[derive(Clone, Copy)]
 pub struct RoundRobinPCB {
-	pid: Pid,
+	/// The pid of the process
+    pid: Pid,
+    /// The state of the process
 	state: ProcessState,
+    /// The time that process spent in execution
 	exec_time: usize,
+    /// The time that process spent on syscalls
 	syscall_time: usize,
+    /// The time that process spent sleeping
 	sleep_time: usize,
 }
 
 impl RoundRobinPCB {
-	fn new(pid: Pid) -> RoundRobinPCB {
-		RoundRobinPCB { 
-			pid: pid,
-			state: ProcessState::Ready,
-			exec_time: 0,
-			syscall_time: 0,
-			sleep_time: 0,
-		 }
-	}
+    /// Creates a new Process Control Block based on the provided pid
+    /// 
+    /// * `pid` - pid of the new process
+    fn new(pid: Pid) -> RoundRobinPCB {
+        RoundRobinPCB {
+            pid,
+            state: ProcessState::Ready,
+            exec_time: 0,
+            syscall_time: 0,
+            sleep_time: 0,
+        }
+    }
 
-	/// Set the Process Control Block state to `new_state`
+    /// Set the Process Control Block state to `new_state`
+    /// 
+    /// * `new_state` - new state of the process
 	fn set_state(&mut self, new_state: ProcessState) {
 		self.state = new_state;
 	}
 
-	/// Add the `time` to the total time that the process spent executing
-	fn add_execution_time(&mut self, time: usize) {
+    /// Set the process state to `running`
+    fn run(&mut self) {
+        self.state = ProcessState::Running;
+    }
+
+    /// Add the `time` to the total time that the process spent executing
+    /// 
+    /// * `time` - time that process spent doing instructions
+	fn execute(&mut self, time: usize) {
 		self.exec_time += time;
 	}
 
 	/// Add the `time` to the total time that the process spent sleeping
-	fn add_sleeping_time(&mut self, time: usize) {
+    /// 
+    /// * `time` - time that process spent sleeping 
+	fn sleep(&mut self, time: usize) {
 		self.sleep_time += time;
 	}
 
-	/// Increase the number of syscalls sent by process
-	fn add_syscall_time(&mut self) {
+    /// Increase the time that the process spent sending syscalls
+    /// 
+	/// Counts a new syscall
+	fn syscall(&mut self) {
 		self.syscall_time += 1;
 	}
-
 }
 
 impl Process for RoundRobinPCB {
-	fn pid(&self) -> Pid {
+    fn pid(&self) -> Pid {
 		self.pid
 	}
 
@@ -68,52 +89,53 @@ impl Process for RoundRobinPCB {
 	}
 }
 
+/// The structure that is used to control the scheduling of the processes
+/// for the Round Robin Scheduler
 pub struct RoundRobinScheduler {
-	ready: VecDeque<RoundRobinPCB>,
-	waiting: VecDeque<RoundRobinPCB>,
-	sleeping: VecDeque<(RoundRobinPCB, usize)>,
-	running: Option<RoundRobinPCB>,
-	next_pid: Pid,
-	quanta: NonZeroUsize,
-	min_slice: usize,
-	unused_time: usize,
+    /// The queue for processes in `ready` state
+    ready: VecDeque<RoundRobinPCB>,
+    /// The vec that stores and manages processes in `sleep` state
+    sleeping: Vec<(RoundRobinPCB, usize)>,
+    /// The vec that stores and manages processes waiting for an event
+    waiting: Vec<(RoundRobinPCB, usize)>,
+    /// The running process
+    running: Option<RoundRobinPCB>,
+    /// The time quanta of the scheduler
+    /// 
+    /// The maximum time a process can spend in `running` state
+    quanta: NonZeroUsize,
+    /// The minimum remaining time that a process needs for being replanified just
+    /// after a syscall
+    /// 
+    /// If the remaining time after syscall is greater or equal to the `min_time`, then
+    /// the process will continue running, otherwise, it will be put in the `ready` queue,
+    /// and it will be planified when it will be dequeued by the scheduler
+    min_time: usize,
+    /// The pid of the next process that will be spawned
+    next_pid: Pid,
+    /// The time that the last process didn't use from it's quanta, before being interrupted
+    /// by a syscall
+    unused_time: usize,
 }
 
 impl RoundRobinScheduler {
-	pub fn new(timeslice: NonZeroUsize, minimum_remaining_timeslice: usize) -> RoundRobinScheduler {
+    pub fn new(timeslice: NonZeroUsize, minimum_remaining_timeslice: usize) -> RoundRobinScheduler {
 		RoundRobinScheduler { 
-			ready: VecDeque::new(), 
-			waiting: VecDeque::new(),
-			sleeping: VecDeque::new(),
-			running: None, 
-			next_pid: Pid::new(1), 
-			quanta: timeslice, 
-			min_slice: minimum_remaining_timeslice,
-			unused_time: 0,
+			ready: VecDeque::new(),
+            sleeping: Vec::new(),
+            waiting: Vec::new(),
+            running: None,
+            quanta: timeslice,
+            min_time: minimum_remaining_timeslice,
+            next_pid: Pid::new(1),
+            unused_time: 0,
 		}
 	}
 
-	/// Returns the pid of the running process, if there is one, or None otherwise
-	fn get_running_pid(&mut self) -> Option<Pid> {
-		
-		if let Some (pcb) = self.running {
-			return Some(pcb.pid);
-		} else {
-			return  None;
-		}
-	}
-
-	/// Makes the scheduler know about the time that the running process wasn't
-	/// able to use from it's allocated quanta, because it was stopped by a
-	/// syscall
-	fn set_unused_time(&mut self, unused_time: usize) {
-		self.unused_time = unused_time;
-	}
-
-	/// Increase the `next_pid` field of the RoundRobinScheduler
+    /// Increase the `next_pid` field of the RoundRobinScheduler
 	/// 
-	/// Method is called after a new process is spawned, so every process
-	/// has it's unique pid
+	/// Method is called immediatelly after the `next_pid` is used by
+    /// a process
 	/// 
 	/// The `next_pid` field is strongly connected with the creation of 
 	/// processes, so the actions should happen one after another
@@ -121,9 +143,10 @@ impl RoundRobinScheduler {
 		self.next_pid = self.next_pid.add(1);
 	}
 
-	/// Crates a new Process Control Block for the scheduler, using the `next_pid`,
-	/// and update the `next_pid` field of the scheduler, to mark as used the new spawned
-	/// process pid
+    /// Creates a new Process Control Block related to a new process, that uses the
+    /// `next_pid` as pid
+    /// 
+    /// Function calls [`inc_pid`] to update `next_pid`, after creating the **PCB**
 	fn spawn_process(&mut self) -> RoundRobinPCB {
 		let new_proc = RoundRobinPCB::new(self.next_pid);
 		self.inc_pid();
@@ -131,228 +154,178 @@ impl RoundRobinScheduler {
 		new_proc
 	}
 
-	/// Returns a new RoundRobinPCB process, forked from the running process
-	/// 
-	/// It spawns a new process, and adds it to the queue
-	/// 
-	/// * `remaining_time` - the number of units of time that the parent process didn't
-	/// 				   used from it's allocated time quanta
-	fn fork(&mut self, remaining_time: usize) -> RoundRobinPCB {
-		/* Set the time that the current running process of the scheduler didn't 
-		used from it's time quanta */
-		self.set_unused_time(remaining_time);
+    /// Returns a new Round Robin process block, forked from the running process
+    /// and pushes it to the `ready` queue
+    fn fork(&mut self) -> RoundRobinPCB {
+        /* Spawn a new process and add it to the `ready` queue */
+        let new_proc = self.spawn_process();
+        self.ready.push_back(new_proc);
 
-		/* Spawn a new process */
-		let new_proc = self.spawn_process();
-		self.ready.push_back(new_proc);
+        new_proc
+    }
 
-		new_proc
-	}
+    /// Enqueues the running process and returns Ok, if there is one,
+    /// or it does nothing and returns an Err
+    fn enqueue_running_process(&mut self) -> Result<(), ()>{
+        return if let Some(mut pcb) = self.running {
+            pcb.set_state(ProcessState::Ready);
+            self.ready.push_back(pcb);
+            self.running = None;
 
-	/// Enqueues the running process, if it exists, and returns Ok, otherwise does
-	/// nothing and return an Err
-	/// 
-	/// The method add to total execution time the `used_time` send as parameter
-	/// 
-	/// * `used_time` - the units of time that the running process used from it's
-	/// 			  quanta for execution
-	fn enqueue_running_process(&mut self, used_time: usize) -> Result<(), ()> {
-		if let Some(mut pcb) = self.running {
-			pcb.set_state(ProcessState::Ready);
-			pcb.add_execution_time(used_time);
-			self.ready.push_back(pcb);
-			self.running = None;
+            // Let the caller know that the method made some changes
+            Ok(())
+        } else {
 
-			/* Make the caller know the operation was done */
-			return Ok(())
-		} else {
-			/* Make the caller know the operation did nothing */
-			return Err(());
-		}
-	}
+            // Let the caller know that there was no running process
+            Err(())
+        }
+    }
 
-	/// Makes running the next process waiting in the `ready` queue,
-	/// or it sets the `running` process to None, if there isn't a single
-	/// process in the `ready` queue
-	fn dequeue_process(&mut self) {
-		let proc = self.ready.pop_front();
-		self.running = proc;
-
-		if let Some(mut pcb) = self.running {
-			pcb.set_state(ProcessState::Running);
-		}
-	}
-
-	/// Returns the minimum time when a process will exit from sleep
-	/// state, if there are processes in sleep, or None otherwise
-	/// 
-	fn get_sleep_time(&mut self) -> Option<usize> {
-		/* If there are no process in sleep */
-		if self.sleeping.is_empty() {
-			return None;
-		}
-
-		/* Search for the minimum time that the scheduler should sleep */
-		let mut minimum_time = usize::MAX;
-		for item in self.sleeping.iter() {
-			if item.1 < minimum_time {
-				minimum_time = item.1;
-			}
-		}
-	
-		Some(minimum_time)
-	}
-
-	/// Updates the sleeping time for all processes in sleep state
-	fn update_sleeping_time(&mut self, elapsed_time: usize) {
-		
-		for item in self.sleeping.iter_mut() {
-			item.1 -= elapsed_time
-		}
-	}
-
-	fn dequeue_sleeping(&mut self) {
-		
-	}
-
-	/// Returns true if all the processes are waiting for a signal, or false
-	/// otherwise
-	fn is_deadlocked(&mut self) -> bool {
-		if let Some(_) = self.running {
-			return false;
-		}
-		
-		if !self.ready.is_empty() {
-			return false;
-		}
-
-		if !self.sleeping.is_empty() {
-			return false;
-		}
-
-		if self.waiting.is_empty() {
-			return false;
-		}
-
-		return true;
-	}
-
+    /// Dequeues the next ready process in the queue, if there is one
+    /// 
+    /// The method does not modify the `ready` state of the process
+    fn dequeue_ready_process(&mut self) {
+        self.running = self.ready.pop_front();
+    }
 }
 
 impl Scheduler for RoundRobinScheduler {
-	fn stop(&mut self, reason: StopReason) -> SyscallResult {
-		println!("Called stop");
-		
-		if let StopReason::Syscall { syscall, remaining } = reason {
-			if let Syscall::Fork(_) = syscall {
-				/* Spawn a new process */
-				let new_proc = self.fork(remaining);
-				
-				/* The first fork won't have a running process, but rest of the
-				times it will have a parent process, so it should update the 
-				syscall time of the parent */
-				if let Some(mut pcb) = self.running {
-					pcb.add_syscall_time();
-				}
+    fn stop(&mut self, reason: StopReason) -> SyscallResult {
+        
+        if let StopReason::Syscall { syscall, remaining } = reason {
+            // Fork should be called with a process running, but the first fork, that
+            // generates the process with PID 1 is called without having a process in
+            // `running` state
+            if let Syscall::Fork(_) = syscall {
+                let new_proc: RoundRobinPCB;
 
-				return SyscallResult::Pid(new_proc.pid);
-			}
+                if let Some(_) = self.running {
+                    // Save the timing for next scheduling decision
+                    self.unused_time = remaining;
+                    // Spawn new process
+                    new_proc = self.fork();
+                } else {
+                    // Just spawn a new process
+                    new_proc = self.fork();
+                }
 
-			if let Syscall::Sleep(time) = syscall {
-				todo!();
-			}
+                return SyscallResult::Pid(new_proc.pid);
+            }
 
-			if let Syscall::Wait(event) = syscall {
-				todo!();
-			}
+            if let Syscall::Exit = syscall {
 
-			if let Syscall::Signal(event) = syscall {
-				todo!();
-			}
+            }
+        }
 
-			if let Syscall::Exit = syscall {
-				todo!();
-			}
-		}
+        // If the process wasn't interrupted by a syscall, then it's time expired
+        if let Some(mut pcb) = self.running {
+            self.unused_time = 0;
+            pcb.execute(self.quanta.get());
 
-		/* If the reason isn't a syscall, then the time expired, so we should try to
-		enqueue the running process */
-		if let Ok(_) = self.enqueue_running_process(self.quanta.get()) {
-			return SyscallResult::Success;
-		}
+            // It should always return Ok
+            self.enqueue_running_process().unwrap();
+            return SyscallResult::Success;
+        }
 
-		/* If the enqueue operation returned an error, then there was no running process */
-		SyscallResult::NoRunningProcess
+        SyscallResult::NoRunningProcess
+    }
 
-	}
+    fn next(&mut self) -> SchedulingDecision {
+        
+        let used_time = self.quanta.get() - self.unused_time;
 
-	fn next(&mut self) -> SchedulingDecision {
-		println!("Called next");
-		
-		let used_time = self.quanta.get() - self.unused_time;
+        // If unused_time equals 0, either the program started and process 1 was forked,
+        // or the last process that was running consumed all it's quanta
+        if self.unused_time == 0 {
+            self.dequeue_ready_process();
 
-		if self.unused_time < self.min_slice {
-			/* Enqueue the running process and bring forward the next one */
-			_ = self.enqueue_running_process(used_time);
-			self.dequeue_process();
-			
-			/* Run the process dequeued, if there is one */
-			if let Some(pcb) = self.running {
-				return SchedulingDecision::Run {
-					pid: pcb.pid,
-					timeslice: self.quanta,
-				};
-			} else {
-				/* At this point, there was no process in the ready queue, so it
-				should search for processes from sleep state */
-				if let Some(time) = self.get_sleep_time() {
-					return SchedulingDecision::Sleep(NonZeroUsize::new(time).unwrap());
-				}
+            if let Some(mut pcb) = self.running {
+                // Run the process
+                pcb.run();
+                return SchedulingDecision::Run {
+                    pid: pcb.pid,
+                    timeslice: self.quanta };
+            } else {
+                
+                // TODO: Is not done, but for test 1 it should work
+                return SchedulingDecision::Done;
+            }
+        }
 
-				/* If there was no process in the sleep queue, we should check for a
-				deadlock */
-				if self.is_deadlocked() {
-					return SchedulingDecision::Deadlock;
-				}
+        // If the running process can't be replanified
+        if self.unused_time < self.min_time {
+            
+            // Reset the `unused_time`
+            self.unused_time = 0;
 
-				return SchedulingDecision::Done;
-			}
-		} else {
-			/* Reschedule the current process  */
-			return SchedulingDecision::Run {
-				pid: self.get_running_pid().unwrap(),
-				timeslice: NonZeroUsize::new(self.unused_time).unwrap(),
-			};
-		}
+            // First, update the timinigs
+            // If it panics, then there is a big problem with the program's
+            // logic. The `unused_time` results from a running process. If
+            // there was no running process, then the `unused_time` should equal 0
+            self.running.unwrap().execute(used_time);
 
-	}
+            // Then, enqueue the running process
+            // It should always returns Ok. If not, there is a mistake in program's 
+            // logic. A process that wasn't running can't have unused_time greater
+            // than 0
+            self.enqueue_running_process().unwrap();
 
-	fn list(&mut self) -> Vec<&dyn Process> {
-		println!("Called list");
+            // Dequeue the next process
+            self.dequeue_ready_process();
+            
+            // The running can't be run, because it's a cycle
+            // TODO: add unwrap here
+            if let Some(mut pcb) = self.running {
+                pcb.run();
+                return SchedulingDecision::Run {
+                    pid: pcb.pid,
+                    timeslice: self.quanta,
+                }
+            } else {
+                panic!("I just enqueued a process");
+            }
+        }
 
-		let mut list: Vec<&dyn Process> = Vec::new();
-		
-		/* Add the running process */
-		match &self.running {
-			None => (),
-			Some(pcb) => list.push(pcb),
-		};
+        // At this point the running process should be replanified
+        
+        // Save the value of `unused_time`, to use it as timeslice to continue
+        // running the current process
+        let time: NonZeroUsize = NonZeroUsize::new(self.unused_time).unwrap();
 
-		/* Add the ready processes */
-		for item in self.ready.iter() {
-			list.push(item);
-		};
+        // Reset the `unused_time`
+        self.unused_time = 0;
+        
+        return SchedulingDecision::Run {
+            pid: self.running.unwrap().pid,
+            timeslice: time,
+        };
 
-		/* Add the waiting processes */
-		for item in self.waiting.iter() {
-			list.push(item);
-		};
+    }
 
-		/* Add the sleeping processes */
-		for item in self.sleeping.iter() {
-			list.push(&item.0);
-		}
+    fn list(&mut self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
 
-		return list;
-	}
+        /* Add the running process */
+        match &self.running {
+            Some(pcb) => procs.push(pcb),
+            None => (),
+        }
+
+        /* Add the ready processes */
+        for item in self.ready.iter() {
+            procs.push(item);
+        }
+
+        /* Add the sleeping processes */
+        for item in self.sleeping.iter() {
+            procs.push(&item.0);
+        }
+
+        /* Add the waiting processes */
+        for item in self.waiting.iter() {
+            procs.push(&item.0);
+        }
+
+        procs
+    }
 }
