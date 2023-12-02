@@ -552,8 +552,8 @@ impl Scheduler for RoundRobinScheduler {
                     // Unblock all processes waiting for the event to happen
                     self.unblock_processes(event);
                     self.update_timestamp(1); // The syscall consumes one unit of time
-
-                    self.running = None;
+                    self.running = Some(pcb);
+                    
                     return SyscallResult::Success;
                 }
             }
