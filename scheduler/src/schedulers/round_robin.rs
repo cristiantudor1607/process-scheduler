@@ -319,6 +319,28 @@ impl RoundRobinScheduler {
         self.waiting.push((running, event));
     }
 
+    /// Removes from waiting queue the processes that waited for the `event`
+    /// to happen
+    /// 
+    /// * `event` - the event provided by a `Signal(event)` syscall
+    fn unblock_processes(&mut self, event: usize) {
+        let mut procs: VecDeque<RoundRobinPCB> = VecDeque::new();
+
+        // Keep the processes that waits for another event
+        self.waiting.retain(|item| {
+            if item.1 == event {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
+
     /// Updates the sleeping time of all the processes from sleeping queue
     fn update_sleeping_times(&mut self) {
         
@@ -514,6 +536,21 @@ impl Scheduler for RoundRobinScheduler {
 
                     // Make the process wait for event
                     self.block_process(pcb, event);
+                    self.update_timestamp(1); // The syscall consumes one unit of time
+
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
+            if let Syscall::Signal(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    // Update the timings and the timestamp
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.update_timestamp(passed_time);
+
+                    // Unblock all processes waiting for the event to happen
+                    self.unblock_processes(event);
                     self.update_timestamp(1); // The syscall consumes one unit of time
 
                     self.running = None;
