@@ -50,14 +50,20 @@ impl RoundRobinPCB {
 	}
 
     /// Set the process state to `Running`
-    fn run(&mut self) {
+    fn set_run(&mut self) {
         self.state = ProcessState::Running;
     }
 
     /// Set the process state to `Waiting(None)`, which indicates that a process
     /// is in sleep state
-    fn send_to_sleep(&mut self) {
+    fn set_sleep(&mut self) {
         self.state = ProcessState::Waiting { event: None };
+    }
+
+    /// Set the process state to `Waiting(event)`, which indicates the process is
+    /// waiting for `event` to happen
+    fn wait_for_event(&mut self, event: usize) {
+        self.state = ProcessState::Waiting { event: Some(event) };
     }
 
     /// Add the `time` to the total time that the process spent executing
@@ -264,6 +270,7 @@ impl RoundRobinScheduler {
     /// * `running` - running process that is being interrupted
     /// * `remaining` - number of units of time that the running process
     ///               didn't use from it's quanta
+    /// * `reason` - the reason why process stopped
     fn interrupt_process(&self,
         running: &mut RoundRobinPCB,
         remaining: usize,
@@ -271,11 +278,12 @@ impl RoundRobinScheduler {
         -> usize {
         
         let exec_time: usize;
+
         // Count a new syscall if the process was stopped by one
         if let StopReason::Syscall { .. } = reason {
             running.syscall();
-            // For processes stopped by a syscall, one unit of time is not executed, but
-            // consumed by the syscall
+            // For processes stopped by syscalls, one unit of time is used for the
+            // syscall, not executed
             exec_time = running.time_payload - remaining - 1;
         } else {
             exec_time = running.time_payload - remaining;
@@ -296,8 +304,19 @@ impl RoundRobinScheduler {
     ///             it should be the running process of the scheduler
     /// * `time` -  the time that process has to sleep
     fn sleep_process(&mut self, mut running: RoundRobinPCB, time: usize) {
-        running.send_to_sleep();
+        running.set_sleep();
         self.sleeping.push((running, self.timestamp, time));
+    }
+
+    /// Adds a process to the waiting queue of the scheduler
+    /// 
+    /// * `running` - the process to be put in the waiting queue;
+    ///             if `running` isn't the scheduler's running process,
+    ///             it will activate an undefined behaviour
+    /// * `event` - the event that process is waiting for
+    fn block_process(&mut self, mut running: RoundRobinPCB, event: usize) {
+        running.wait_for_event(event);
+        self.waiting.push((running, event));
     }
 
     /// Updates the sleeping time of all the processes from sleeping queue
@@ -472,24 +491,34 @@ impl Scheduler for RoundRobinScheduler {
             }
 
             if let Syscall::Sleep(time) = syscall {
-
                 if let Some(mut pcb) = self.running {   
-                    // Update the timings
+                    // Update the timings anf the timestamp
                     let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
-
-                    // Update the timestamp
                     self.update_timestamp(passed_time);
 
                     // Sleep the process
                     self.sleep_process(pcb, time);
-
                     self.update_timestamp(1); // The syscall consumes one unit of time
                     
                     // Set running to None
                     self.running = None;
                     return SyscallResult::Success;
                 }
+            }
 
+            if let Syscall::Wait(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    // Update the timings and the timestamp
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.update_timestamp(passed_time);
+
+                    // Make the process wait for event
+                    self.block_process(pcb, event);
+                    self.update_timestamp(1); // The syscall consumes one unit of time
+
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
             }
 
             if let Syscall::Exit = syscall {
@@ -537,7 +566,7 @@ impl Scheduler for RoundRobinScheduler {
             // If there was at least one process in the ready queue 
             if let Some(mut pcb) = self.running {
                 // Run the process
-                pcb.run();
+                pcb.set_run();
                 pcb.load_payload(self.quanta.get());
                 self.running = Some(pcb);
                 
@@ -566,7 +595,7 @@ impl Scheduler for RoundRobinScheduler {
                 self.dequeue_ready_process();
 
                 if let Some(mut ready_proc) = self.running {
-                    ready_proc.run();
+                    ready_proc.set_run();
                     ready_proc.load_payload(self.quanta.get());
                     self.running = Some(ready_proc);
                 }
