@@ -338,8 +338,8 @@ impl RoundRobinScheduler {
         let mut min_time = usize::MAX;
 
         for item in self.sleeping.iter() {
-            let slept_time = curr_time - item.1;
-            let remaining = item.2 - slept_time;
+            let ending_timestamp = item.1 + item.2;
+            let remaining = ending_timestamp - self.timestamp + 1;
             if remaining < min_time {
                 min_time = remaining;
             }
