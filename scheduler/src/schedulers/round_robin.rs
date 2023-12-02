@@ -62,9 +62,15 @@ impl RoundRobinPCB {
 		self.state = new_state;
 	}
 
-    /// Set the process state to `running`
+    /// Set the process state to `Running`
     fn run(&mut self) {
         self.state = ProcessState::Running;
+    }
+
+    /// Set the process state to `Waiting(None)`, which indicates that a process
+    /// is in sleep state
+    fn send_to_sleep(&mut self) {
+        self.state = ProcessState::Waiting { event: None };
     }
 
     /// Add the `time` to the total time that the process spent executing
@@ -74,41 +80,12 @@ impl RoundRobinPCB {
 		self.exec_time += time;
 	}
 
-	/// Add the `time` to the total time that the process spent sleeping
-    /// 
-    /// * `time` - time that process spent sleeping 
-	fn sleep(&mut self, time: usize) {
-		self.sleep_time += time;
-	}
-
-    /// Add the `time` to the total time that the process spent waiting for
-    /// events
-    /// 
-    /// * `time` - time that process spent waiting
-    fn wait_event(&mut self, time: usize) {
-        self.waiting_time += time;
-    }
-
-    /// Add `time` to the total time that process spent waiting for other
-    /// processes to be run
-    /// 
-    /// * `time` - time that process spent wainting in queue
-    fn wait_in_queue(&mut self, time: usize) {
-        self.queued_time += time;
-    }
-
     /// Increase the time that the process spent sending syscalls
     /// 
 	/// Counts a new syscall
 	fn syscall(&mut self) {
 		self.syscall_time += 1;
-        self.syscalls_at_runtime += 1;
 	}
-
-    /// Resets the `syscalls_at_runtime` field of the process control block
-    fn reset_runtime_syscalls(&mut self) {
-        self.syscalls_at_runtime = 0;
-    }
 
     fn load_payload(&mut self, payload: usize) {
         self.time_payload = payload;
@@ -311,6 +288,50 @@ impl RoundRobinScheduler {
         
     }
 
+    /// Adds the process to the sleeping queue of the scheduler
+    /// 
+    /// * `running` - the process to be put in the sleeping queue;
+    ///             it should be the running process of the scheduler
+    /// * `time` -  the time that process has to sleep
+    fn sleep_process(&mut self, mut running: RoundRobinPCB, time: usize) {
+        running.send_to_sleep();
+        self.sleeping.push((running, time));
+    }
+
+    /// Updates the sleeping time of all the processes from sleeping queue
+    /// 
+    /// * `time` - the time consumed from sleeping time
+    fn update_sleeping_time(&mut self, time: usize) {
+        
+        for item in self.sleeping.iter_mut() {
+            // Prevent an overflow
+            if item.1 < time {
+                item.1 = 0;
+            } else {
+                item.1 -= time;
+            }
+        }
+    }
+
+    fn wakeup_processes(&mut self) {
+        let mut procs : VecDeque<RoundRobinPCB> = VecDeque::new();
+        
+        // Keep in sleeping queue the processes that didn't consumed it's
+        // sleeping time
+        self.sleeping.retain(| item | {
+            if item.1 == 0 {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        // Enqueue the processes that slept all time
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
     /// Checks if the parent process was killed, and his children still exist,
     /// a case of panic
     fn is_panicd(&self) -> bool {
@@ -341,29 +362,45 @@ impl Scheduler for RoundRobinScheduler {
 
                 if let Some(mut pcb) = self.running {
                     // Fork from a parent process
-                    
-                    let passsed_time = self.interrupt_process(&mut pcb, remaining);
-                    self.running = Some(pcb);
 
+                    // Update the timings
+                    let passsed_time = self.interrupt_process(&mut pcb, remaining);
+
+                    // Update the timestamp
                     self.update_timestamp(passsed_time);
 
                     // Spawn the new process
                     new_proc = self.fork(self.timestamp);
-                    self.update_timestamp(1);
+                    self.update_timestamp(1);   // The fork consumes one unit of time
                 } else {
                     // The Fork that creates the process with PID 1 at timestamp 0
 
                     // Spawn the process with PID 1 at time 0
                     new_proc = self.fork(0);
 
-                    // The operations consumes 1 unit of time
-                    self.update_timestamp(1);
+                    self.update_timestamp(1); // The fork consumes one unit of time
                 }
 
                 return SyscallResult::Pid(new_proc.pid);
             }
 
             if let Syscall::Sleep(time) = syscall {
+
+                if let Some(mut pcb) = self.running {
+                    
+                    // Update the timings
+                    let passed_time = self.interrupt_process(&mut pcb, remaining);
+                    
+                    // Update the timestamp
+                    self.update_timestamp(passed_time);
+
+                    // Sleep the process
+                    self.sleep_process(pcb, time);
+                    
+                    // Set running to None
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
 
             }
 
