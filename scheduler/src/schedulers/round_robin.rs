@@ -1,7 +1,8 @@
-use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
+use std::{num::NonZeroUsize, collections::VecDeque, ops::Add, os::unix::process};
 use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
 SyscallResult, Scheduler}, Syscall};
 
+#[derive(Debug)]
 /// The Round Robin Scheduler process control block
 #[derive(Clone, Copy)]
 pub struct RoundRobinPCB {
@@ -282,6 +283,34 @@ impl RoundRobinScheduler {
         self.running = self.ready.pop_front();
     }
 
+    // TODO: this don't need to be a method, it can be a function
+
+    /// When a process is interrupted, this method updates the timings
+    /// of the process and returns the time passed between last
+    /// scheduler interference and the current time
+    /// 
+    /// * `running` - running process that is being interrupted
+    /// * `remaining` - number of units of time that the running process
+    ///               didn't use from it's quanta
+    fn interrupt_process(&self, running: &mut RoundRobinPCB, remaining: usize) -> usize {
+        
+        // Count a new syscall
+        running.syscall();
+
+        // Count the execution time: The execution time should be the difference
+        // between the time_payload of the running process and the remaining time,
+        // but one unit of time is consumed by the syscall
+        let exec_time = running.time_payload - remaining - 1;
+
+        // Update the payload
+        running.load_payload(remaining);
+
+        // The time passed is the same as execution time
+        // TODO: explain the logic
+        return exec_time;
+        
+    }
+
     /// Checks if the parent process was killed, and his children still exist,
     /// a case of panic
     fn is_panicd(&self) -> bool {
@@ -313,19 +342,10 @@ impl Scheduler for RoundRobinScheduler {
                 if let Some(mut pcb) = self.running {
                     // Fork from a parent process
                     
-                    // Count the syscall and modify the payload
-                    pcb.syscall();
-                    
-                    // Add the execution time
-                    pcb.execute(pcb.time_payload - remaining - 1);
-
-                    // Update the timestamp: -1 comes from the current syscall
-                    self.update_timestamp(pcb.time_payload - remaining - 1);
-
-                    // Change the payload
-                    pcb.load_payload(remaining);
-
+                    let passsed_time = self.interrupt_process(&mut pcb, remaining);
                     self.running = Some(pcb);
+
+                    self.update_timestamp(passsed_time);
 
                     // Spawn the new process
                     new_proc = self.fork(self.timestamp);
@@ -341,6 +361,10 @@ impl Scheduler for RoundRobinScheduler {
                 }
 
                 return SyscallResult::Pid(new_proc.pid);
+            }
+
+            if let Syscall::Sleep(time) = syscall {
+
             }
 
             if let Syscall::Exit = syscall {
@@ -377,8 +401,9 @@ impl Scheduler for RoundRobinScheduler {
         
         // If the last running process expired, then running is None
         if let None = self.running {
-            // There is a possibility that running is None and the process with
-            // PID 1 is gone
+            
+            // If there is no running process, at least one of the queues aren't empty,
+            // and the parent process (PID 1) was killed, then there is a panic
             if self.is_panicd()  {
                 return SchedulingDecision::Panic;
             }
@@ -399,8 +424,6 @@ impl Scheduler for RoundRobinScheduler {
                     timeslice: NonZeroUsize::new(self.running.unwrap().time_payload).unwrap(),
                 };
             }
-
-            // At this point the ready queue  was empty before trying to dequeue a process
 
             // TODO: Check for a deadlock
             return SchedulingDecision::Done;
