@@ -264,8 +264,17 @@ impl RoundRobinScheduler {
     /// * `running` - running process that is being interrupted
     /// * `remaining` - number of units of time that the running process
     ///               didn't use from it's quanta
-    fn interrupt_process(&self, running: &mut RoundRobinPCB, remaining: usize) -> usize {
-        // Count a new syscall
+    fn interrupt_process(&self,
+        running: &mut RoundRobinPCB,
+        remaining: usize,
+        reason: StopReason)
+        -> usize {
+        
+        // Count a new syscall if the process was stopped by one
+        if let StopReason::Syscall { .. } = reason {
+            running.syscall();
+        }
+        
         running.syscall();
 
         // Count the execution time: The execution time should be the difference
@@ -443,7 +452,7 @@ impl Scheduler for RoundRobinScheduler {
                     // Fork from a parent process
 
                     // Update the timings
-                    let passsed_time = self.interrupt_process(&mut pcb, remaining);
+                    let passsed_time = self.interrupt_process(&mut pcb, remaining, reason);
                     self.running = Some(pcb);
                     
                     // Update the timestamp
@@ -468,8 +477,8 @@ impl Scheduler for RoundRobinScheduler {
 
                 if let Some(mut pcb) = self.running {   
                     // Update the timings
-                    let passed_time = self.interrupt_process(&mut pcb, remaining);
-                    println!("{:?}", pcb);
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+
                     // Update the timestamp
                     self.update_timestamp(passed_time);
 
@@ -496,14 +505,11 @@ impl Scheduler for RoundRobinScheduler {
 
         // If the process wasn't interrupted by a syscall, it's time expired
         if let Some(mut pcb) = self.running {
-            // Count the execution time
-            pcb.execute(pcb.time_payload);
+            // Update the timings
+            let passed_time = self.interrupt_process(&mut pcb, 0, StopReason::Expired);
 
             // Update the timestamp
-            self.update_timestamp(pcb.time_payload);
-            
-            // Reset the payload, because the process will be put in `ready` state
-            pcb.time_payload = 0;
+            self.update_timestamp(passed_time + 1);
 
             // Enqueue the running process with fields updated
             self.enqueue_process(pcb);
