@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, collections::VecDeque, ops::Add, os::unix::process};
+use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
 use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
 SyscallResult, Scheduler}, Syscall};
 
@@ -23,15 +23,6 @@ pub struct RoundRobinPCB {
     /// 
     /// The payload is set before running the process
     time_payload: usize,
-    /// The time that process spent sleeping
-	sleep_time: usize,
-    /// The time that process spent waiting in the queue
-    queued_time: usize,
-    /// The time that process spent waiting for events
-    waiting_time: usize,
-    /// The number of syscalls that stopped the process in a time
-    /// quanta, while being in state `running`
-    syscalls_at_runtime: usize,
 }
 
 impl RoundRobinPCB {
@@ -48,10 +39,6 @@ impl RoundRobinPCB {
             exec_time: 0,
             syscall_time: 0,
             time_payload: 0,
-            sleep_time: 0,
-            queued_time: 0,
-            waiting_time: 0,
-            syscalls_at_runtime: 0,
         }
     }
 
@@ -121,7 +108,12 @@ pub struct RoundRobinScheduler {
     /// The queue for processes in `ready` state
     ready: VecDeque<RoundRobinPCB>,
     /// The vec that stores and manages processes in `sleep` state
-    sleeping: Vec<(RoundRobinPCB, usize)>,
+    /// 
+    /// It stores tuples (`Process Control Block`, Timestamp, Time), where
+    /// * `Process Control Block` - stores the process data
+    /// * `Timestamp` - the process was sent to sleep at this timestamp
+    /// * `Time` - the process has to sleep this amount of time
+    sleeping: Vec<(RoundRobinPCB, usize, usize)>,
     /// The vec that stores and manages processes waiting for an event
     waiting: Vec<(RoundRobinPCB, usize)>,
     /// The running process
@@ -143,6 +135,8 @@ pub struct RoundRobinScheduler {
     timestamp: usize,
     /// If the process with PID 1 is killed, panicd is activated
     panicd: bool,
+    /// The time that scheduler has slept
+    slept_time: usize,
 }
 
 impl RoundRobinScheduler {
@@ -157,6 +151,7 @@ impl RoundRobinScheduler {
             next_pid: Pid::new(1),
             timestamp: 0,
             panicd: false,
+            slept_time: 0,
 		}
 	}
 
@@ -295,31 +290,30 @@ impl RoundRobinScheduler {
     /// * `time` -  the time that process has to sleep
     fn sleep_process(&mut self, mut running: RoundRobinPCB, time: usize) {
         running.send_to_sleep();
-        self.sleeping.push((running, time));
+        self.sleeping.push((running, self.timestamp, time));
     }
 
     /// Updates the sleeping time of all the processes from sleeping queue
-    /// 
-    /// * `time` - the time consumed from sleeping time
-    fn update_sleeping_time(&mut self, time: usize) {
+    fn update_sleeping_times(&mut self) {
         
+        let curr_time = self.timestamp;
+
         for item in self.sleeping.iter_mut() {
-            // Prevent an overflow
-            if item.1 < time {
-                item.1 = 0;
-            } else {
-                item.1 -= time;
+            let time_diff = curr_time - item.1;
+            if time_diff >= item.2 {
+                item.2 = 0;
             }
-        }
+        }   
     }
 
+    /// Sends to `ready` queue the processes that finised their sleep time
     fn wakeup_processes(&mut self) {
         let mut procs : VecDeque<RoundRobinPCB> = VecDeque::new();
         
         // Keep in sleeping queue the processes that didn't consumed it's
         // sleeping time
         self.sleeping.retain(| item | {
-            if item.1 == 0 {
+            if item.2 == 0 {
                 procs.push_back(item.0);
                 false
             } else {
@@ -332,6 +326,28 @@ impl RoundRobinScheduler {
             self.enqueue_process(*item);
         }
     }
+
+    /// Returns the minimum time that the scheduler has to sleep, so a process can
+    /// be woken up
+    fn get_sleep_time(&self) -> usize {
+        if self.sleeping.is_empty() {
+            return 0;
+        }
+
+        let curr_time = self.timestamp;
+        let mut min_time = usize::MAX;
+
+        for item in self.sleeping.iter() {
+            let slept_time = curr_time - item.1;
+            let remaining = item.2 - slept_time;
+            if remaining < min_time {
+                min_time = remaining;
+            }
+        }
+
+        return min_time;
+    }
+
     /// Checks if the parent process was killed, and his children still exist,
     /// a case of panic
     fn is_panicd(&self) -> bool {
@@ -350,10 +366,74 @@ impl RoundRobinScheduler {
         return false;
     }
 
+    /// Checks if the scheduler has to sleep, is deadlocked, or all the processes are done,
+    /// and returns a SchedulingDecision, otherwise returns None
+    fn is_blocked(&self) -> Option<SchedulingDecision> {
+        // If there is a running process, the is_blocked functon should not be called,
+        // based on the flow and logic of the program, but as a measure of safety, it'll
+        // return None
+        if let Some(_) = self.running {
+            return None;
+        }
+
+        // If the ready queue isn't empty, the scheduler will continue planifying other
+        // processes
+        if !self.ready.is_empty() {
+            return None;
+        }
+
+        // If all the queues are empty, then it is done
+        if self.sleeping.is_empty() && self.waiting.is_empty() {
+            return Some(SchedulingDecision::Done);
+        }
+
+        // If all the processes from the scheduler wait for an event to happen,
+        // but there is no process that will send a signal, results a Deadlock
+        if self.sleeping.is_empty() && !self.waiting.is_empty() {
+            return Some(SchedulingDecision::Deadlock);
+        }
+
+        // If there are processes sleeping (no matter the waiting ones), the scheduler
+        // should sleep
+        if !self.sleeping.is_empty() {
+            // TODO: explain why this is not 0
+            let sleeping_time = self.get_sleep_time();
+            
+            return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
+        }
+
+        return None;
+    }
+    
+    /// Decides if the scheduler has to sleep, by setting the `slept_time` field of the
+    /// scheduler, based on the `decision` provided
+    /// 
+    /// * `decision` - the scheduling decision taken by the scheduler
+    fn decide_sleep(&mut self, decision: SchedulingDecision) {
+        if let SchedulingDecision::Sleep(time) = decision {
+            self.slept_time = time.get();
+        } else {
+            self.slept_time = 0;
+        }
+    }
+
+    /// If the scheduler slept, wakes it up, by setting the `timestamp` and reseting the
+    /// `slept_time`. It also wakes up the processes that finised their sleeping
+    fn wakeup_myself(&mut self) {
+        if self.slept_time != 0 {
+            self.update_timestamp(self.slept_time);
+            self.slept_time = 0;
+        }
+
+        // TODO: add comment that it uses those 2
+        self.update_sleeping_times();
+        self.wakeup_processes();
+    }
 }
 
 impl Scheduler for RoundRobinScheduler {
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
+       
         // Process stopped by a system call
         if let StopReason::Syscall { syscall, remaining } = reason {
 
@@ -365,7 +445,8 @@ impl Scheduler for RoundRobinScheduler {
 
                     // Update the timings
                     let passsed_time = self.interrupt_process(&mut pcb, remaining);
-
+                    self.running = Some(pcb);
+                    
                     // Update the timestamp
                     self.update_timestamp(passsed_time);
 
@@ -386,11 +467,10 @@ impl Scheduler for RoundRobinScheduler {
 
             if let Syscall::Sleep(time) = syscall {
 
-                if let Some(mut pcb) = self.running {
-                    
+                if let Some(mut pcb) = self.running {   
                     // Update the timings
                     let passed_time = self.interrupt_process(&mut pcb, remaining);
-                    
+
                     // Update the timestamp
                     self.update_timestamp(passed_time);
 
@@ -435,7 +515,9 @@ impl Scheduler for RoundRobinScheduler {
     }
 
     fn next(&mut self) -> SchedulingDecision {
-        
+        // Wake up the scheduler
+        self.wakeup_myself();
+
         // If the last running process expired, then running is None
         if let None = self.running {
             
@@ -462,8 +544,13 @@ impl Scheduler for RoundRobinScheduler {
                 };
             }
 
-            // TODO: Check for a deadlock
-            return SchedulingDecision::Done;
+            if let Some(result) = self.is_blocked() {
+                self.decide_sleep(result);
+                return result;
+            }
+
+            // It shouldn't reach this point
+            panic!("Fatal error");
         }
 
         if let Some(proc) = self.running {

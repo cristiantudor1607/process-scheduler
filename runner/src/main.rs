@@ -24,7 +24,7 @@ fn main() {
     // });
 
     let logs = Processor::run(round_robin(NonZeroUsize::new(3).unwrap(), 1), | process | {
-        process.sleep(10);
+       process.sleep(10);
     });
 
     println!("{}", format_logs(&logs));
