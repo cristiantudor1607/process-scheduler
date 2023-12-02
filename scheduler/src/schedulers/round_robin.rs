@@ -476,6 +476,8 @@ impl Scheduler for RoundRobinScheduler {
 
                     // Sleep the process
                     self.sleep_process(pcb, time);
+
+                    self.update_timestamp(1); // The syscall consumes one unit of time
                     
                     // Set running to None
                     self.running = None;
