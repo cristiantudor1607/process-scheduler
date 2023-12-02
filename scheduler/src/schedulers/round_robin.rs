@@ -270,24 +270,24 @@ impl RoundRobinScheduler {
         reason: StopReason)
         -> usize {
         
+        let exec_time: usize;
         // Count a new syscall if the process was stopped by one
         if let StopReason::Syscall { .. } = reason {
             running.syscall();
+            // For processes stopped by a syscall, one unit of time is not executed, but
+            // consumed by the syscall
+            exec_time = running.time_payload - remaining - 1;
+        } else {
+            exec_time = running.time_payload - remaining;
         }
 
-        // Count the execution time: The execution time should be the difference
-        // between the time_payload of the running process and the remaining time,
-        // but one unit of time is consumed by the syscall
-        let exec_time = running.time_payload - remaining - 1;
+        // Count the execution time
         running.execute(exec_time);
 
         // Update the payload
         running.load_payload(remaining);
 
-        // The time passed is the same as execution time
-        // TODO: explain the logic
         return exec_time;
-        
     }
 
     /// Adds the process to the sleeping queue of the scheduler
@@ -507,7 +507,7 @@ impl Scheduler for RoundRobinScheduler {
             let passed_time = self.interrupt_process(&mut pcb, 0, StopReason::Expired);
 
             // Update the timestamp
-            self.update_timestamp(passed_time + 1);
+            self.update_timestamp(passed_time);
 
             // Enqueue the running process with fields updated
             self.enqueue_process(pcb);
