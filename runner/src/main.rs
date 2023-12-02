@@ -26,12 +26,34 @@ fn main() {
     let logs = Processor::run(round_robin(NonZeroUsize::new(3).unwrap(), 1), | process | {
         process.fork(
             |process| {
+                for _ in 0..5 {
+                    process.exec();
+                }
                 process.wait(1);
+            },
+            0,
+        );
+        process.fork(
+            |process| {
+                for _ in 0..5 {
+                    process.exec();
+                }
+                process.wait(1);
+            },
+            0,
+        );
+        process.fork(
+            |process| {
+                for _ in 0..5 {
+                    process.exec();
+                }
+                process.wait(2);
             },
             0,
         );
         process.sleep(10);
         process.signal(1);
+        process.wait(0);
         process.sleep(10);
     });
 

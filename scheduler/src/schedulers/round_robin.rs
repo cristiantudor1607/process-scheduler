@@ -8,6 +8,10 @@ SyscallResult, Scheduler}, Syscall};
 pub struct RoundRobinPCB {
 	/// The pid of the process
     pid: Pid,
+    /// The priority of the process
+    /// 
+    /// The Round Robin Algorithm ignores the priorities
+    priority: i8,
     /// The state of the process
 	state: ProcessState,
     /// The time when process spawned
@@ -29,10 +33,12 @@ impl RoundRobinPCB {
     /// Creates a new Process Control Block based on the provided pid
     /// 
     /// * `pid` - pid of the new process
+    /// * `priority` - priority of the new process
     /// * `arrival` - the timestamp when process was spawned
-    fn new(pid: Pid, arrival: usize) -> RoundRobinPCB {
+    fn new(pid: Pid, priority: i8, arrival: usize) -> RoundRobinPCB {
         RoundRobinPCB {
             pid,
+            priority,
             state: ProcessState::Ready,
             arrival_time: arrival,
             total_time: 0,
@@ -100,7 +106,7 @@ impl Process for RoundRobinPCB {
 	}
 
 	fn priority(&self) -> i8 {
-		0
+		self.priority
 	}
 
 	fn extra(&self) -> String {
@@ -212,9 +218,10 @@ impl RoundRobinScheduler {
     /// Function calls [`inc_pid`] to update `next_pid`, after creating the process
     /// control block
     /// 
+    /// * `priority` - the priority of the new process
     /// * `timestamp` - the arrival time of the forked process
-	fn spawn_process(&mut self, timestamp: usize) -> RoundRobinPCB {
-		let new_proc = RoundRobinPCB::new(self.next_pid, timestamp);
+	fn spawn_process(&mut self, priority: i8, timestamp: usize) -> RoundRobinPCB {
+		let new_proc = RoundRobinPCB::new(self.next_pid, priority, timestamp);
 		self.inc_pid();
 
 		new_proc
@@ -222,9 +229,12 @@ impl RoundRobinScheduler {
 
     /// Returns a new Round Robin process block, forked from the running process
     /// and pushes it to the `ready` queue
-    fn fork(&mut self, timestamp: usize) -> RoundRobinPCB {
+    /// 
+    /// * `priority` - the priority of the new process
+    /// * `timestamp` - the time when process is created
+    fn fork(&mut self, priority: i8, timestamp: usize) -> RoundRobinPCB {
         /* Spawn a new process and add it to the `ready` queue */
-        let new_proc = self.spawn_process(timestamp);
+        let new_proc = self.spawn_process(priority, timestamp);
         self.ready.push_back(new_proc);
 
         new_proc
@@ -484,7 +494,7 @@ impl Scheduler for RoundRobinScheduler {
         // Process stopped by a system call
         if let StopReason::Syscall { syscall, remaining } = reason {
 
-            if let Syscall::Fork(_) = syscall {
+            if let Syscall::Fork(prio) = syscall {
                 let new_proc: RoundRobinPCB;
 
                 if let Some(mut pcb) = self.running {
@@ -498,13 +508,13 @@ impl Scheduler for RoundRobinScheduler {
                     self.update_timestamp(passsed_time);
 
                     // Spawn the new process
-                    new_proc = self.fork(self.timestamp);
+                    new_proc = self.fork(prio, self.timestamp);
                     self.update_timestamp(1);   // The fork consumes one unit of time
                 } else {
                     // The Fork that creates the process with PID 1 at timestamp 0
 
                     // Spawn the process with PID 1 at time 0
-                    new_proc = self.fork(0);
+                    new_proc = self.fork(prio, 0);
 
                     self.update_timestamp(1); // The fork consumes one unit of time
                 }
@@ -553,7 +563,7 @@ impl Scheduler for RoundRobinScheduler {
                     self.unblock_processes(event);
                     self.update_timestamp(1); // The syscall consumes one unit of time
                     self.running = Some(pcb);
-                    
+
                     return SyscallResult::Success;
                 }
             }
