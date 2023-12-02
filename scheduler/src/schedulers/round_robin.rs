@@ -274,8 +274,6 @@ impl RoundRobinScheduler {
         if let StopReason::Syscall { .. } = reason {
             running.syscall();
         }
-        
-        running.syscall();
 
         // Count the execution time: The execution time should be the difference
         // between the time_payload of the running process and the remaining time,
