@@ -265,7 +265,6 @@ impl RoundRobinScheduler {
     /// * `remaining` - number of units of time that the running process
     ///               didn't use from it's quanta
     fn interrupt_process(&self, running: &mut RoundRobinPCB, remaining: usize) -> usize {
-        
         // Count a new syscall
         running.syscall();
 
@@ -273,6 +272,7 @@ impl RoundRobinScheduler {
         // between the time_payload of the running process and the remaining time,
         // but one unit of time is consumed by the syscall
         let exec_time = running.time_payload - remaining - 1;
+        running.execute(exec_time);
 
         // Update the payload
         running.load_payload(remaining);
@@ -334,7 +334,6 @@ impl RoundRobinScheduler {
             return 0;
         }
 
-        let curr_time = self.timestamp;
         let mut min_time = usize::MAX;
 
         for item in self.sleeping.iter() {
@@ -470,7 +469,7 @@ impl Scheduler for RoundRobinScheduler {
                 if let Some(mut pcb) = self.running {   
                     // Update the timings
                     let passed_time = self.interrupt_process(&mut pcb, remaining);
-
+                    println!("{:?}", pcb);
                     // Update the timestamp
                     self.update_timestamp(passed_time);
 

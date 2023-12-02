@@ -23,8 +23,19 @@ fn main() {
     //     process.exec();
     // });
 
-    let logs = Processor::run(round_robin(NonZeroUsize::new(3).unwrap(), 1), | process | {
-       process.sleep(10);
+    let logs = Processor::run(round_robin(NonZeroUsize::new(5).unwrap(), 2), | process | {
+        for _ in 0..3 {
+            process.exec();
+        }
+        process.sleep(10);
+        for _ in 0..3 {
+            process.exec();
+        }
+        process.sleep(10);
+        for _ in 0..3 {
+            process.exec();
+        }
+        process.sleep(10);
     });
 
     println!("{}", format_logs(&logs));
