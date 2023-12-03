@@ -361,7 +361,6 @@ impl RoundRobinScheduler {
             if time_diff > item.2 {
                 item.2 = 0;
             }
-            
         }   
     }
 
@@ -586,8 +585,8 @@ impl Scheduler for RoundRobinScheduler {
             self.update_timestamp(passed_time);
 
             // Enqueue the running process with fields updated
-            self.enqueue_process(pcb);
-            self.running = None;
+            //self.enqueue_process(pcb);
+            //self.running = None;
 
             return SyscallResult::Success;
         }
