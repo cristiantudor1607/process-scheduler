@@ -358,9 +358,10 @@ impl RoundRobinScheduler {
 
         for item in self.sleeping.iter_mut() {
             let time_diff = curr_time - item.1;
-            if time_diff >= item.2 {
+            if time_diff > item.2 {
                 item.2 = 0;
             }
+            
         }   
     }
 
