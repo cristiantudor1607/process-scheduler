@@ -2,93 +2,20 @@ use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::collections::{VecDeque, HashMap};
 
+use crate::{PrioRoundRobinPCB, ProcessControlBlock};
 use crate::common_types::{Timestamp, Event, MIN_PRIO, MAX_PRIO};
 use crate::{collector, Collector, collect_all};
 use crate::scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason,
 SyscallResult, Scheduler};
 use crate::Syscall;
 
-
-/// The Priority Round Robin process control block
-#[derive(Clone, Copy)]
-pub struct PrioRoundRobinPCB {
-    /// The PID of the process
-    pid: Pid,
-    /// The priority that process had when it was created
-    /// 
-    /// The priority of the process will never exceed this priority
-    /// It cannot be greater than 5
-    priority_at_born: i8,
-    /// The priority of the process
-    /// 
-    /// The priority can't be smaller than 0, or greater than `priority_at_born`
-    priority: i8,
-    /// The state of the process
-    state: ProcessState,
-    /// The timestamp when process was spawned
-    arrival_time: Timestamp,
-    /// The total time of existence
-    total_time: usize,
-    /// The time that process spent executing instructions
-    exec_time: usize,
-    /// The time that process consumed on syscalls, or the
-    /// number of syscalls that interrupted the process in all of
-    /// his existence
-    syscall_time: usize,
-    /// The maximum time that process can execute instructions, before being
-    /// preempted
-    time_payload: usize,
-}
-
-impl PrioRoundRobinPCB {
-    /// Creates a new Process Control Block
-    /// 
-    /// * `pid` - PID of the new process
-    /// * `priority` - priority of the new process
-    /// * `arrival` - timestamp when process is created
-    fn new(pid: Pid, priority: i8, arrival: Timestamp) -> PrioRoundRobinPCB {
-        PrioRoundRobinPCB {
-            pid,
-            priority,
-            priority_at_born: priority,
-            state: ProcessState::Ready,
-            arrival_time: arrival,
-            total_time: 0,
-            exec_time: 0,
-            syscall_time: 0,
-            time_payload: 0,
-        }
-    }
-}
-
-impl Process for PrioRoundRobinPCB {
-    fn pid(&self) -> Pid {
-        self.pid
-    }
-
-    fn state(&self) -> ProcessState {
-        self.state
-    }
-
-    fn timings(&self) -> (usize, usize, usize) {
-        (self.total_time, self.syscall_time, self.exec_time)
-    }
-
-    fn priority(&self) -> i8 {
-        self.priority
-    }
-
-    fn extra(&self) -> String {
-        String::new()
-    }
-}
-
+use super::round_robin::RoundRobinPCB;
 
 pub struct PriorityRRScheduler {
     /// Map with the ready processes for each priority
     ready: HashMap<i8, VecDeque<PrioRoundRobinPCB>>,
     /// Sleeping queue, common for all priorities
-    sleeping: Vec<(PrioRoundRobinPCB, Timestamp)>,
+    sleeping: Vec<(PrioRoundRobinPCB, Timestamp, usize)>,
     /// Waiting queue, common for all priorities
     waiting: Vec<(PrioRoundRobinPCB, Event)>,
     /// Running process
@@ -132,6 +59,114 @@ impl PriorityRRScheduler {
             slept_time: 0,
         }
     }
+
+    fn update_existence_time(&mut self) {
+        if let Some(mut pcb) = self.running {
+            pcb.total_time = self.timestamp.get() - pcb.arrival_time.get() - 1;
+            self.running = Some(pcb);
+        }
+
+        for i in (MIN_PRIO..=MAX_PRIO).rev() {
+            if let Some(queue) = self.ready.get_mut(&i) {
+                for item in queue.iter_mut() {
+                    item.total_time = self.timestamp.get() - item.arrival_time.get() - 1;
+                }
+            }
+        }
+
+        for item in self.sleeping.iter_mut() {
+            item.0.total_time = self.timestamp.get() - item.0.arrival_time.get() - 1;
+        }
+
+        for item in self.waiting.iter_mut() {
+            item.0.total_time = self.timestamp.get() - item.0.arrival_time.get() - 1;
+        }
+    }
+
+    fn make_timeskip(&mut self, time: usize) {
+        self.timestamp = self.timestamp.add(time);
+    }
+
+    fn inc_pid(&mut self) {
+        self.next_pid = self.next_pid.add(1);
+    }
+
+    fn spawn_process(&mut self, priority: i8, timestamp: Timestamp) -> PrioRoundRobinPCB {
+        let new_proc = PrioRoundRobinPCB::new(self.next_pid, priority, timestamp);
+        self.inc_pid();
+
+        new_proc
+    }
+
+    fn fork(&mut self, priority: i8, timestamp: Timestamp) -> Pid {
+        let new_proc = self.spawn_process(priority, timestamp);
+        self.enqueue_process(new_proc);
+
+        new_proc.pid()
+    }
+
+    fn enqueue_process(&mut self, mut proc: PrioRoundRobinPCB) {
+        proc.set_state(ProcessState::Ready);
+
+        let prio = proc.priority();
+        
+        if let Some(queue) = self.ready.get_mut(&prio) {
+            queue.push_back(proc);
+            return;
+        }
+
+        let mut queue: VecDeque<PrioRoundRobinPCB> = VecDeque::new();
+        queue.push_back(proc);
+        self.ready.insert(prio, queue);
+    }
+
+    fn dequeue_process(&mut self) {
+        for i in (MIN_PRIO..=MAX_PRIO).rev() {
+            if let Some(queue) = self.ready.get_mut(&i) {
+                if queue.is_empty() {
+                    continue;
+                }
+
+                self.running = queue.pop_front();
+                return;
+            }
+        }
+    }
+
+    fn kill_running(&mut self) -> SyscallResult {
+        return if let Some(proc) = self.running {
+            if proc.pid == Pid::new(1) {
+                self.panicd = true;
+            }
+
+            self.running = None;
+            SyscallResult::Success
+        } else {
+            SyscallResult::NoRunningProcess
+        }
+    }
+
+    fn interrupt_process(&self,
+        running: &mut PrioRoundRobinPCB,
+        remaining: usize,
+        reason: StopReason)
+        -> usize {
+        
+        let exec_time: usize;
+
+        if let StopReason::Syscall { .. } = reason {
+            running.syscall();
+            exec_time = running.time_payload - remaining - 1;
+        } else {
+            exec_time = running.time_payload - remaining;
+        }
+
+        running.execute(exec_time);
+        running.load_payload(remaining);
+
+        return  exec_time;
+    }
+    
 }
 
 impl Collector for PriorityRRScheduler {
@@ -179,13 +214,93 @@ impl Collector for PriorityRRScheduler {
     }
 }
 
-impl Scheduler for PriorityRRScheduler {
+impl Scheduler for PriorityRRScheduler{
     
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
+        
+        if let StopReason::Syscall { syscall, remaining } = reason {
+            let new_proc_pid: Pid;
+
+            if let Syscall::Fork(prio) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.running = Some(pcb);
+
+                    self.make_timeskip(passed_time);
+
+                    new_proc_pid = self.fork(prio, self.timestamp);
+                    self.make_timeskip(1);
+                } else {
+                    new_proc_pid = self.fork(prio, self.timestamp);
+                }
+
+                return SyscallResult::Pid(new_proc_pid);
+            }
+
+            if let Syscall::Exit = syscall {
+                if let Some(pcb) = self.running {
+                    self.make_timeskip(pcb.time_payload - remaining);
+                }
+
+                return self.kill_running();
+            }
+        }
+
+        if let Some(mut pcb) = self.running {
+            let passed_time = self.interrupt_process(&mut pcb, 0, reason);
+
+            self.make_timeskip(passed_time);
+            self.running = Some(pcb);
+
+            return SyscallResult::Success;
+        }
+        
+        
         SyscallResult::NoRunningProcess
     }
 
     fn next(&mut self) -> SchedulingDecision {
+        if let None = self.running {
+            self.dequeue_process();
+
+            if let Some(mut pcb) = self.running {
+                pcb.set_running();
+                pcb.load_payload(self.quanta.get());
+                self.running = Some(pcb);
+
+                return SchedulingDecision::Run {
+                    pid: self.running.unwrap().pid,
+                    timeslice: self.quanta
+                };
+            } else {
+                return SchedulingDecision::Done;
+            }
+        }
+
+        if let Some(proc) = self.running {
+            if proc.time_payload < self.min_time {
+                self.enqueue_process(proc);
+
+                self.dequeue_process();
+
+                if let Some(mut ready_proc) = self.running {
+                    ready_proc.set_running();
+                    ready_proc.load_payload(self.quanta.get());
+                    self.running = Some(ready_proc);
+                }
+
+                return SchedulingDecision::Run {
+                    pid: self.running.unwrap().pid,
+                    timeslice: self.quanta,
+                };
+            }
+
+            return SchedulingDecision::Run {
+                pid: proc.pid,
+                timeslice: NonZeroUsize::new(proc.time_payload).unwrap(),
+            };
+        }
+        
         SchedulingDecision::Done
     }
 

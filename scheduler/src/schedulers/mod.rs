@@ -14,6 +14,9 @@
 mod empty;
 pub use empty::Empty;
 
+mod priority_rr_pcb;
+pub use priority_rr_pcb::PrioRoundRobinPCB;
+
 mod round_robin;
 pub use round_robin::RoundRobinScheduler;
 
