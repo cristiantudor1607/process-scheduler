@@ -4,12 +4,11 @@ use std::collections::{VecDeque, HashMap};
 
 use crate::{PrioRoundRobinPCB, ProcessControlBlock};
 use crate::common_types::{Timestamp, Event, MIN_PRIO, MAX_PRIO};
-use crate::{collector, Collector, collect_all};
+use crate::{Collector, collect_all};
 use crate::scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason,
 SyscallResult, Scheduler};
 use crate::Syscall;
 
-use super::round_robin::RoundRobinPCB;
 
 pub struct PriorityRRScheduler {
     /// Map with the ready processes for each priority
@@ -71,6 +70,7 @@ impl PriorityRRScheduler {
                 for item in queue.iter_mut() {
                     item.total_time = self.timestamp.get() - item.arrival_time.get() - 1;
                 }
+
             }
         }
 
@@ -232,6 +232,7 @@ impl Scheduler for PriorityRRScheduler{
                     self.make_timeskip(1);
                 } else {
                     new_proc_pid = self.fork(prio, self.timestamp);
+                    self.make_timeskip(1);
                 }
 
                 return SyscallResult::Pid(new_proc_pid);
@@ -305,6 +306,7 @@ impl Scheduler for PriorityRRScheduler{
     }
 
     fn list(&mut self) -> Vec<&dyn Process> {
+        self.update_existence_time();
         return collect_all(self);
     }
 }
