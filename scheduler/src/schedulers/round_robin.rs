@@ -584,9 +584,12 @@ impl Scheduler for RoundRobinScheduler {
             // Update the timestamp
             self.update_timestamp(passed_time);
 
+            // TODO: remove this
+            self.wakeup_myself();
+            
             // Enqueue the running process with fields updated
-            //self.enqueue_process(pcb);
-            //self.running = None;
+            self.enqueue_process(pcb);
+            self.running = None;
 
             return SyscallResult::Success;
         }
