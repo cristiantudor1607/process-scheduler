@@ -315,7 +315,7 @@ impl RoundRobinScheduler {
     /// * `time` -  the time that process has to sleep
     fn sleep_process(&mut self, mut running: RoundRobinPCB, time: usize) {
         running.set_sleep();
-        self.sleeping.push((running, self.timestamp, time + 1));
+        self.sleeping.push((running, self.timestamp, time));
     }
 
     /// Adds a process to the waiting queue of the scheduler
