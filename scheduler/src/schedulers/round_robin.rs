@@ -1,8 +1,7 @@
-use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
+use std::{num::NonZeroUsize, collections::VecDeque, ops::Add, process::Command};
 use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
-SyscallResult, Scheduler}, Syscall};
+SyscallResult, Scheduler}, Syscall, Collector, collect_all};
 
-#[derive(Debug)]
 /// The Round Robin Scheduler process control block
 #[derive(Clone, Copy)]
 pub struct RoundRobinPCB {
@@ -30,7 +29,7 @@ pub struct RoundRobinPCB {
 }
 
 impl RoundRobinPCB {
-    /// Creates a new Process Control Block based on the provided pid
+    /// Creates a new Process Control Block
     /// 
     /// * `pid` - pid of the new process
     /// * `priority` - priority of the new process
@@ -488,6 +487,49 @@ impl RoundRobinScheduler {
     }
 }
 
+impl Collector for RoundRobinScheduler {
+    fn collect_running(&self) -> Vec<&dyn Process> {
+        let mut proc: Vec<&dyn Process> = Vec::new();
+
+        match &self.running {
+            Some(pcb) => proc.push(pcb),
+            None => (),
+        }
+
+        proc
+    }
+
+    fn collect_ready(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for item in self.ready.iter() {
+            procs.push(item);
+        }
+
+        procs
+    }
+
+    fn collect_sleeping(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for item in self.sleeping.iter() {
+            procs.push(&item.0);
+        }
+
+        procs
+    }
+
+    fn collect_waiting(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for item in self.waiting.iter() {
+            procs.push(&item.0);
+        }
+
+        procs
+    }
+}
+
 impl Scheduler for RoundRobinScheduler {
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
         // Process stopped by a system call
@@ -666,31 +708,7 @@ impl Scheduler for RoundRobinScheduler {
     }
 
     fn list(&mut self) -> Vec<&dyn Process> {
-       
         self.update_total_time();
-        let mut procs: Vec<&dyn Process> = Vec::new();
-
-        /* Add the running process */
-        match &self.running {
-            Some(pcb) => procs.push(pcb),
-            None => (),
-        }
-
-        /* Add the ready processes */
-        for item in self.ready.iter() {
-            procs.push(item);
-        }
-
-        /* Add the sleeping processes */
-        for item in self.sleeping.iter() {
-            procs.push(&item.0);
-        }
-
-        /* Add the waiting processes */
-        for item in self.waiting.iter() {
-            procs.push(&item.0);
-        }
-
-        procs
+        return collect_all(self);
     }
 }
