@@ -315,7 +315,7 @@ impl RoundRobinScheduler {
     /// * `time` -  the time that process has to sleep
     fn sleep_process(&mut self, mut running: RoundRobinPCB, time: usize) {
         running.set_sleep();
-        self.sleeping.push((running, self.timestamp, time));
+        self.sleeping.push((running, self.timestamp, time + 1));
     }
 
     /// Adds a process to the waiting queue of the scheduler
@@ -490,7 +490,6 @@ impl RoundRobinScheduler {
 
 impl Scheduler for RoundRobinScheduler {
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
-       
         // Process stopped by a system call
         if let StopReason::Syscall { syscall, remaining } = reason {
 
