@@ -3,7 +3,7 @@ use std::ops::Add;
 use std::collections::{VecDeque, HashMap};
 
 use crate::common_types::{Timestamp, Event, MIN_PRIO, MAX_PRIO};
-use crate::collector;
+use crate::{collector, Collector, collect_all};
 use crate::scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason,
 SyscallResult, Scheduler};
 use crate::Syscall;
@@ -88,7 +88,7 @@ pub struct PriorityRRScheduler {
     /// Map with the ready processes for each priority
     ready: HashMap<i8, VecDeque<PrioRoundRobinPCB>>,
     /// Sleeping queue, common for all priorities
-    sleep: Vec<(PrioRoundRobinPCB, Timestamp)>,
+    sleeping: Vec<(PrioRoundRobinPCB, Timestamp)>,
     /// Waiting queue, common for all priorities
     waiting: Vec<(PrioRoundRobinPCB, Event)>,
     /// Running process
@@ -121,7 +121,7 @@ impl PriorityRRScheduler {
         
         PriorityRRScheduler {
             ready: HashMap::new(),
-            sleep: Vec::new(),
+            sleeping: Vec::new(),
             waiting: Vec::new(),
             running: None,
             quanta: timeslice,
@@ -131,6 +131,51 @@ impl PriorityRRScheduler {
             panicd: false,
             slept_time: 0,
         }
+    }
+}
+
+impl Collector for PriorityRRScheduler {
+    fn collect_running(&self) -> Vec<&dyn Process> {
+        let mut proc: Vec<&dyn Process> = Vec::new();
+
+        match &self.running {
+            Some(pcb) => proc.push(pcb),
+            None => (),
+        }
+
+        proc
+    }
+
+    fn collect_ready(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for (_, queue) in self.ready.iter() {
+            for item in queue.iter() {
+                procs.push(item);
+            }
+        }
+
+        procs
+    }
+
+    fn collect_sleeping(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for item in self.sleeping.iter() {
+            procs.push(&item.0);
+        }
+
+        procs
+    }
+
+    fn collect_waiting(&self) -> Vec<&dyn Process> {
+        let mut procs: Vec<&dyn Process> = Vec::new();
+
+        for item in self.waiting.iter() {
+            procs.push(&item.0);
+        }
+
+        procs
     }
 }
 
@@ -145,7 +190,6 @@ impl Scheduler for PriorityRRScheduler {
     }
 
     fn list(&mut self) -> Vec<&dyn Process> {
-        let procs: Vec<&dyn Process> = Vec::new();    
-        procs
+        return collect_all(self);
     }
 }

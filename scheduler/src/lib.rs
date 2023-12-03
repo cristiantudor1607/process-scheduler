@@ -23,6 +23,9 @@ mod collector;
 pub use crate::collector::Collector;
 pub use crate::collector::collect_all;
 
+mod process_manager;
+pub use crate::process_manager::ProcessManager;
+
 
 // TODO import your scheduler here
 // This example imports the Empty scheduler

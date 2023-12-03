@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, collections::VecDeque, ops::Add, process::Command};
+use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
 use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
 SyscallResult, Scheduler}, Syscall, Collector, collect_all};
 
@@ -364,7 +364,7 @@ impl RoundRobinScheduler {
     }
 
     /// Sends to `ready` queue the processes that finised their sleep time
-    fn wakeup_processes(&mut self) {
+    fn awake_processes(&mut self) {
         let mut procs : VecDeque<RoundRobinPCB> = VecDeque::new();
         
         // Keep in sleeping queue the processes that didn't consumed it's
@@ -483,7 +483,7 @@ impl RoundRobinScheduler {
 
         // TODO: add comment that it uses those 2
         self.update_sleeping_times();
-        self.wakeup_processes();
+        self.awake_processes();
     }
 }
 
