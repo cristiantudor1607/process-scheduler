@@ -167,9 +167,11 @@ impl PriorityQueueScheduler {
 
         if let StopReason::Syscall { .. } = reason {
             running.syscall();
+            running.inc_priority();
             exec_time = running.time_payload - remaining - 1;
         } else {
             exec_time = running.time_payload - remaining;
+            running.dec_priority();
         }
 
         running.execute(exec_time);
