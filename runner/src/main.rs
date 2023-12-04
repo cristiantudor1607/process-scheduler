@@ -25,7 +25,11 @@ fn main() {
     // });
 
     let logs = Processor::run(priority_queue(NonZeroUsize::new(5).unwrap(), 2), | process | {
-        for _ in 0..5 {
+        for _ in 0..3 {
+            process.exec();
+        }
+        process.sleep(10);
+        for _ in 0..2 {
             process.exec();
         }
     });

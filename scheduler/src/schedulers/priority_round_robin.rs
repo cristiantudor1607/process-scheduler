@@ -83,6 +83,17 @@ impl PriorityRRScheduler {
         }
     }
 
+    fn update_sleeping_times(&mut self) {
+        let curr_time = self.timestamp.get();
+
+        for item in self.sleeping.iter_mut() {
+            let time_diff = curr_time - item.1.get();
+            if time_diff > item.2 {
+                item.2 = 0;
+            }
+        }
+    }
+
     fn make_timeskip(&mut self, time: usize) {
         self.timestamp = self.timestamp.add(time);
     }
@@ -166,6 +177,119 @@ impl PriorityRRScheduler {
 
         return  exec_time;
     }
+
+    fn send_process_to_sleep(&mut self, mut proc: PrioRoundRobinPCB, time: usize) {
+        proc.set_sleeping();
+
+        self.sleeping.push((proc, self.timestamp, time));
+    }
+
+    fn awake_processes(&mut self) {
+        let mut procs: VecDeque<PrioRoundRobinPCB> = VecDeque::new();
+
+        self.sleeping.retain(|item| {
+            if item.2 == 0 {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
+
+    fn get_sleep_time(&self) -> usize {
+        if self.sleeping.is_empty() {
+            return 0;
+        }
+
+        let mut min_time = usize::MAX;
+
+        for item in self.sleeping.iter() {
+            let ending_timestamp = item.1 + item.2;
+            let remaining = ending_timestamp.get() - self.timestamp.get() + 1;
+            if remaining < min_time {
+                min_time = remaining;
+            }
+        }
+
+        return min_time;
+    }
+
+    fn has_ready_processes(&self) -> bool {
+        for i in (MIN_PRIO..=MAX_PRIO).rev() {
+            if let Some(queue) = self.ready.get(&i) {
+                if !queue.is_empty() {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    fn is_panicd(&self) -> bool {
+        if !self.panicd {
+            return false;
+        }
+
+        if self.has_ready_processes() || !self.sleeping.is_empty() || !self.waiting.is_empty() {
+            return true;
+        }
+
+        if let Some(_) = self.running {
+            return true;
+        }
+
+        return false;
+    }
+
+    fn is_blocked(&self) -> Option<SchedulingDecision> {
+        if let Some(_) = self.running {
+            return None;
+        }
+
+        if self.has_ready_processes() {
+            return None;
+        }
+
+        if self.sleeping.is_empty() && self.waiting.is_empty() {
+            return Some(SchedulingDecision::Done);
+        }
+
+        if self.sleeping.is_empty() && !self.waiting.is_empty() {
+            return Some(SchedulingDecision::Deadlock);
+        }
+
+        if !self.sleeping.is_empty() {
+            let sleep_time = self.get_sleep_time();
+
+            return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleep_time).unwrap()));
+        }
+
+        return None;
+    }
+
+    fn give_time_to_sleep(&mut self, decision: SchedulingDecision) {
+        if let SchedulingDecision::Sleep(time) = decision {
+            self.slept_time = time.get();
+        } else {
+            self.slept_time = 0;
+        }
+    }
+
+    fn wakeup_myself(&mut self) {
+        if self.slept_time != 0 {
+            self.make_timeskip(self.slept_time);
+            self.slept_time = 0;
+        }
+
+        self.update_sleeping_times();
+        self.awake_processes();
+    }
     
 }
 
@@ -238,6 +362,19 @@ impl Scheduler for PriorityRRScheduler{
                 return SyscallResult::Pid(new_proc_pid);
             }
 
+            if let Syscall::Sleep(time) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.send_process_to_sleep(pcb, time);
+                    self.make_timeskip(1);
+
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
             if let Syscall::Exit = syscall {
                 if let Some(pcb) = self.running {
                     self.make_timeskip(pcb.time_payload - remaining);
@@ -261,7 +398,13 @@ impl Scheduler for PriorityRRScheduler{
     }
 
     fn next(&mut self) -> SchedulingDecision {
+        self.wakeup_myself();
+        
         if let None = self.running {
+            if self.is_panicd() {
+                return SchedulingDecision::Panic;
+            }
+            
             self.dequeue_process();
 
             if let Some(mut pcb) = self.running {
@@ -273,9 +416,14 @@ impl Scheduler for PriorityRRScheduler{
                     pid: self.running.unwrap().pid,
                     timeslice: self.quanta
                 };
-            } else {
-                return SchedulingDecision::Done;
             }
+
+            if let Some(result) = self.is_blocked() {
+                self.give_time_to_sleep(result);
+                return result;
+            }
+
+            panic!("Fatal error");
         }
 
         if let Some(proc) = self.running {
