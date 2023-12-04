@@ -206,8 +206,10 @@ impl FairScheduler {
 
     fn send_process_to_sleep(&mut self, mut proc: FairPCB, time: usize) {
         proc.set_sleeping();
-
         self.sleeping.push((proc, self.timestamp, time));
+
+        self.dec_number();
+        self.recalculate_quanta();
     }
 
     fn awake_processes(&mut self) {
@@ -224,12 +226,18 @@ impl FairScheduler {
 
         for item in procs.iter() {
             self.enqueue_process(*item);
+            self.inc_number();
         }
+
+        self.recalculate_quanta();
     }
 
     fn block_process(&mut self, mut proc: FairPCB, event: Event) {
         proc.wait_for_event(event);
         self.waiting.push((proc, event));
+
+        self.dec_number();
+        self.recalculate_quanta();
     }
 
     fn unblock_processes(&mut self, event: Event) {
@@ -246,7 +254,10 @@ impl FairScheduler {
 
         for item in procs.iter() {
             self.enqueue_process(*item);
+            self.inc_number();
         }
+
+        self.recalculate_quanta();
     }
 
     fn update_sleeping_times(&mut self) {

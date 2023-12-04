@@ -34,7 +34,7 @@ fn main() {
         );
         process.sleep(10);
         process.signal(1);
-        process.sleep(10)
+        process.sleep(10);
     });
 
     println!("{}", format_logs(&logs));
