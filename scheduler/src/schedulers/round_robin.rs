@@ -187,7 +187,9 @@ impl RoundRobinScheduler {
         // Update the processes from ready queue
         for item in self.ready.iter_mut() {
             item.total_time = self.timestamp - item.arrival_time - 1;
+
         }
+
 
         // Update the processes from sleeping vec
         for item in self.sleeping.iter_mut() {

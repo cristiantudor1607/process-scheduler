@@ -1,3 +1,4 @@
+use scheduler::cfs;
 use scheduler::priority_queue;
 use scheduler::round_robin;
 use std::num::NonZeroUsize;
@@ -24,12 +25,8 @@ fn main() {
     //     process.exec();
     // });
 
-    let logs = Processor::run(priority_queue(NonZeroUsize::new(5).unwrap(), 2), | process | {
-        for _ in 0..3 {
-            process.exec();
-        }
-        process.sleep(10);
-        for _ in 0..2 {
+    let logs = Processor::run(cfs(NonZeroUsize::new(10).unwrap(), 1), | process | {
+        for _ in 0..5 {
             process.exec();
         }
     });

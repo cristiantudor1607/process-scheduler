@@ -56,6 +56,43 @@ impl PartialEq for Event {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Vruntime(usize);
+
+impl Vruntime {
+    pub fn new(vruntime: usize) -> Vruntime{
+        Vruntime(vruntime)
+    }
+
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl PartialEq for Vruntime {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
+}
+
+impl PartialOrd for Vruntime {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.0.cmp(&other.0))
+    }
+}
+
+impl Add<usize> for Vruntime {
+    type Output = Vruntime;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Vruntime::new(self.0 + rhs)
+    }
+}
+
 // pub trait SchedulerInfo {
 //     fn get_next_pid(&self) -> Pid;
 //     fn set_next_pid(&mut self, pid: Pid);

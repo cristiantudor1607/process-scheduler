@@ -8,10 +8,13 @@ use std::num::NonZeroUsize;
 
 mod schedulers;
 
-use schedulers::Empty;
 use schedulers::RoundRobinScheduler;
+
 use schedulers::PriorityQueuePCB;
 use schedulers::PriorityQueueScheduler;
+
+pub use schedulers::FairPCB;
+pub use schedulers::FairScheduler;
 
 mod scheduler;
 pub use crate::scheduler::{
@@ -20,6 +23,8 @@ pub use crate::scheduler::{
 
 mod common_types;
 pub use crate::common_types::Timestamp;
+pub use crate::common_types::Event;
+pub use crate::common_types::Vruntime;
 
 mod collector;
 pub use crate::collector::Collector;
@@ -74,5 +79,5 @@ pub fn priority_queue(
 ///                                 the `minimum_remaining_timeslice` value.
 #[allow(unused_variables)]
 pub fn cfs(cpu_time: NonZeroUsize, minimum_remaining_timeslice: usize) -> impl Scheduler {
-    Empty
+    FairScheduler::new(cpu_time, minimum_remaining_timeslice)
 }
