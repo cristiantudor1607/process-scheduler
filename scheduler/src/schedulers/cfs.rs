@@ -133,11 +133,14 @@ impl FairScheduler {
 
         for item in self.ready.iter() {
             if item < &min_vruntime {
-                if item.pid < min_pid {
-                    process = Some(*item);
-                    min_vruntime = item.vruntime;
-                    min_pid = item.pid;
-                }
+                process = Some(*item);
+                min_vruntime = item.vruntime;
+                min_pid = item.pid;
+            }
+
+            if item == &min_vruntime && item.pid < min_pid {
+                process = Some(*item);
+                min_pid = item.pid;
             }
         }
 
