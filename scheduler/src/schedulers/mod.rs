@@ -14,13 +14,13 @@
 mod empty;
 pub use empty::Empty;
 
-mod priority_rr_pcb;
-pub use priority_rr_pcb::PrioRoundRobinPCB;
+mod priority_queue_pcb;
+pub use priority_queue_pcb::PriorityQueuePCB;
 
 mod round_robin;
 pub use round_robin::RoundRobinScheduler;
 
-mod priority_round_robin;
-pub use priority_round_robin::PriorityRRScheduler;
+mod priority_queue;
+pub use priority_queue::PriorityQueueScheduler;
 
 // TODO import your schedulers here

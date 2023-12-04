@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::collections::{VecDeque, HashMap};
 
-use crate::{PrioRoundRobinPCB, ProcessControlBlock};
+use crate::{PriorityQueuePCB, ProcessControlBlock};
 use crate::common_types::{Timestamp, Event, MIN_PRIO, MAX_PRIO};
 use crate::{Collector, collect_all};
 use crate::scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason,
@@ -10,15 +10,15 @@ SyscallResult, Scheduler};
 use crate::Syscall;
 
 
-pub struct PriorityRRScheduler {
+pub struct PriorityQueueScheduler {
     /// Map with the ready processes for each priority
-    ready: HashMap<i8, VecDeque<PrioRoundRobinPCB>>,
+    ready: HashMap<i8, VecDeque<PriorityQueuePCB>>,
     /// Sleeping queue, common for all priorities
-    sleeping: Vec<(PrioRoundRobinPCB, Timestamp, usize)>,
+    sleeping: Vec<(PriorityQueuePCB, Timestamp, usize)>,
     /// Waiting queue, common for all priorities
-    waiting: Vec<(PrioRoundRobinPCB, Event)>,
+    waiting: Vec<(PriorityQueuePCB, Event)>,
     /// Running process
-    running: Option<PrioRoundRobinPCB>,
+    running: Option<PriorityQueuePCB>,
     /// Time quanta of the scheduler
     /// 
     /// The maximum time a process can run before being preempted
@@ -40,12 +40,12 @@ pub struct PriorityRRScheduler {
     slept_time: usize,
 }
 
-impl PriorityRRScheduler {
+impl PriorityQueueScheduler {
     pub fn new(timeslice: NonZeroUsize,
         minimum_remaining_timeslice: usize)
-        -> PriorityRRScheduler {
+        -> PriorityQueueScheduler {
         
-        PriorityRRScheduler {
+        PriorityQueueScheduler {
             ready: HashMap::new(),
             sleeping: Vec::new(),
             waiting: Vec::new(),
@@ -102,8 +102,8 @@ impl PriorityRRScheduler {
         self.next_pid = self.next_pid.add(1);
     }
 
-    fn spawn_process(&mut self, priority: i8, timestamp: Timestamp) -> PrioRoundRobinPCB {
-        let new_proc = PrioRoundRobinPCB::new(self.next_pid, priority, timestamp);
+    fn spawn_process(&mut self, priority: i8, timestamp: Timestamp) -> PriorityQueuePCB {
+        let new_proc = PriorityQueuePCB::new(self.next_pid, priority, timestamp);
         self.inc_pid();
 
         new_proc
@@ -116,7 +116,7 @@ impl PriorityRRScheduler {
         new_proc.pid()
     }
 
-    fn enqueue_process(&mut self, mut proc: PrioRoundRobinPCB) {
+    fn enqueue_process(&mut self, mut proc: PriorityQueuePCB) {
         proc.set_state(ProcessState::Ready);
 
         let prio = proc.priority();
@@ -126,7 +126,7 @@ impl PriorityRRScheduler {
             return;
         }
 
-        let mut queue: VecDeque<PrioRoundRobinPCB> = VecDeque::new();
+        let mut queue: VecDeque<PriorityQueuePCB> = VecDeque::new();
         queue.push_back(proc);
         self.ready.insert(prio, queue);
     }
@@ -158,7 +158,7 @@ impl PriorityRRScheduler {
     }
 
     fn interrupt_process(&self,
-        running: &mut PrioRoundRobinPCB,
+        running: &mut PriorityQueuePCB,
         remaining: usize,
         reason: StopReason)
         -> usize {
@@ -178,17 +178,39 @@ impl PriorityRRScheduler {
         return  exec_time;
     }
 
-    fn send_process_to_sleep(&mut self, mut proc: PrioRoundRobinPCB, time: usize) {
+    fn send_process_to_sleep(&mut self, mut proc: PriorityQueuePCB, time: usize) {
         proc.set_sleeping();
 
         self.sleeping.push((proc, self.timestamp, time));
     }
 
     fn awake_processes(&mut self) {
-        let mut procs: VecDeque<PrioRoundRobinPCB> = VecDeque::new();
+        let mut procs: VecDeque<PriorityQueuePCB> = VecDeque::new();
 
         self.sleeping.retain(|item| {
             if item.2 == 0 {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
+
+    fn block_process(&mut self, mut proc: PriorityQueuePCB, event: Event) {
+        proc.wait_for_event(event);
+        self.waiting.push((proc, event));
+    }
+
+    fn unblock_processes(&mut self, event: Event) {
+        let mut procs: VecDeque<PriorityQueuePCB> = VecDeque::new();
+
+        self.waiting.retain(|item| {
+            if item.1 == event {
                 procs.push_back(item.0);
                 false
             } else {
@@ -293,7 +315,7 @@ impl PriorityRRScheduler {
     
 }
 
-impl Collector for PriorityRRScheduler {
+impl Collector for PriorityQueueScheduler {
     fn collect_running(&self) -> Vec<&dyn Process> {
         let mut proc: Vec<&dyn Process> = Vec::new();
 
@@ -338,7 +360,7 @@ impl Collector for PriorityRRScheduler {
     }
 }
 
-impl Scheduler for PriorityRRScheduler{
+impl Scheduler for PriorityQueueScheduler{
     
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
         
@@ -371,6 +393,32 @@ impl Scheduler for PriorityRRScheduler{
                     self.make_timeskip(1);
 
                     self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
+            if let Syscall::Wait(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.block_process(pcb, Event::new(event));
+                    self.make_timeskip(1);
+
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
+            if let Syscall::Signal(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process( &mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.unblock_processes(Event::new(event));
+                    self.make_timeskip(1);
+                    self.running = Some(pcb);
+
                     return SyscallResult::Success;
                 }
             }

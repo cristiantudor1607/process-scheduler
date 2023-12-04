@@ -1,6 +1,6 @@
 use std::ops::Add;
 
-use crate::{Pid, ProcessControlBlock, schedulers::PrioRoundRobinPCB};
+use crate::{Pid, ProcessControlBlock, schedulers::PriorityQueuePCB};
 
 pub const MIN_PRIO: i8 = 0;
 pub const MAX_PRIO: i8 = 5;
@@ -29,6 +29,7 @@ impl Add<usize> for Timestamp {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Event(usize);
 
 impl Event {
@@ -42,6 +43,16 @@ impl Event {
     /// Gets the event as a usize value
     pub fn get(&self) -> usize {
         self.0
+    }
+}
+
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.0 != other.0
     }
 }
 

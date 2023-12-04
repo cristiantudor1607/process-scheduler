@@ -10,8 +10,8 @@ mod schedulers;
 
 use schedulers::Empty;
 use schedulers::RoundRobinScheduler;
-use schedulers::PrioRoundRobinPCB;
-use schedulers::PriorityRRScheduler;
+use schedulers::PriorityQueuePCB;
+use schedulers::PriorityQueueScheduler;
 
 mod scheduler;
 pub use crate::scheduler::{
@@ -60,7 +60,7 @@ pub fn priority_queue(
     timeslice: NonZeroUsize,
     minimum_remaining_timeslice: usize,
 ) -> impl Scheduler {
-    PriorityRRScheduler::new(timeslice, minimum_remaining_timeslice)
+    PriorityQueueScheduler::new(timeslice, minimum_remaining_timeslice)
 }
 
 /// Returns a structure that implements the `Scheduler` trait with a simplified [cfs](https://opensource.com/article/19/2/fair-scheduling-linux) scheduler policy

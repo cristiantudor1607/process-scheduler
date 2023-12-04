@@ -9,7 +9,7 @@ use crate::common_types::Event;
 
 /// The Priority Round Robin process control block
 #[derive(Clone, Copy)]
-pub struct PrioRoundRobinPCB {
+pub struct PriorityQueuePCB {
     /// The PID of the process
     pub pid: Pid,
     /// The priority that process had when it was created
@@ -38,16 +38,16 @@ pub struct PrioRoundRobinPCB {
     pub time_payload: usize,
 }
 
-unsafe impl Send for PrioRoundRobinPCB {}
+//unsafe impl Send for PrioRoundRobinPCB {}
 
-impl PrioRoundRobinPCB {
+impl PriorityQueuePCB {
     /// Creates a new Process Control Block
     /// 
     /// * `pid` - PID of the new process
     /// * `priority` - priority of the new process
     /// * `arrival` - timestamp when process is created
-    pub fn new(pid: Pid, priority: i8, arrival: Timestamp) -> PrioRoundRobinPCB {
-        PrioRoundRobinPCB {
+    pub fn new(pid: Pid, priority: i8, arrival: Timestamp) -> PriorityQueuePCB {
+        PriorityQueuePCB {
             pid,
             priority,
             priority_at_born: priority,
@@ -61,7 +61,7 @@ impl PrioRoundRobinPCB {
     }
 }
 
-impl Process for PrioRoundRobinPCB {
+impl Process for PriorityQueuePCB {
     fn pid(&self) -> Pid {
         self.pid
     }
@@ -83,7 +83,7 @@ impl Process for PrioRoundRobinPCB {
     }
 }
 
-impl ProcessControlBlock for PrioRoundRobinPCB {
+impl ProcessControlBlock for PriorityQueuePCB {
     fn inc_priority(&mut self) {
         self.priority += 1;
         if self.priority > self.priority_at_born {
