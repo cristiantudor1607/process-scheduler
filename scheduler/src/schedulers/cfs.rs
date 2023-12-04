@@ -1,3 +1,4 @@
+use std::alloc::System;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::num::ParseIntError;
@@ -226,6 +227,28 @@ impl FairScheduler {
         }
     }
 
+    fn block_process(&mut self, mut proc: FairPCB, event: Event) {
+        proc.wait_for_event(event);
+        self.waiting.push((proc, event));
+    }
+
+    fn unblock_processes(&mut self, event: Event) {
+        let mut procs: VecDeque<FairPCB> = VecDeque::new();
+
+        self.waiting.retain(|item| {
+            if item.1 == event {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
+
     fn update_sleeping_times(&mut self) {
         let curr_time = self.timestamp;
 
@@ -398,16 +421,43 @@ impl Scheduler for FairScheduler {
 
                 return SyscallResult::Pid(new_proc_pid);
             }
-
+            
             if let Syscall::Sleep(time) = syscall {
                 if let Some(mut pcb) = self.running {
                     let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
                     self.make_timeskip(passed_time);
-
+                    
                     self.send_process_to_sleep(pcb, time);
+                    self.make_timeskip(1);
+                    
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+            
+            if let Syscall::Wait(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.block_process(pcb, Event::new(event));
                     self.make_timeskip(1);
 
                     self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
+            if let Syscall::Signal(event) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.unblock_processes(Event::new(event));
+                    self.make_timeskip(1);
+
+                    self.running = Some(pcb);
+
                     return SyscallResult::Success;
                 }
             }
