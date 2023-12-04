@@ -208,7 +208,9 @@ impl FairScheduler {
                 self.panicd = true;
             }
 
+            self.dec_number();
             self.running = None;
+            self.recalculate_quanta();
             SyscallResult::Success
         } else {
             SyscallResult::NoRunningProcess
