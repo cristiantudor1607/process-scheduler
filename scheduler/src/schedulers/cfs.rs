@@ -129,12 +129,15 @@ impl FairScheduler {
     fn get_next_process(&mut self) -> Option<FairPCB> {
         let mut process: Option<FairPCB> = None;
         let mut min_vruntime = Vruntime::new(usize::MAX);
+        let mut min_pid = Pid::new(usize::MAX);
 
         for item in self.ready.iter() {
-            // Mereu o sa imi ramana primul minim pe care il gaseste
             if item < &min_vruntime {
-                process = Some(*item);
-                min_vruntime = item.vruntime;
+                if item.pid < min_pid {
+                    process = Some(*item);
+                    min_vruntime = item.vruntime;
+                    min_pid = item.pid;
+                }
             }
         }
 
