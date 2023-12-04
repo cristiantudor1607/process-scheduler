@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::num::ParseIntError;
 use std::ops::Add;
@@ -202,6 +203,40 @@ impl FairScheduler {
         self.running = self.get_next_process();
     }
 
+    fn send_process_to_sleep(&mut self, mut proc: FairPCB, time: usize) {
+        proc.set_sleeping();
+
+        self.sleeping.push((proc, self.timestamp, time));
+    }
+
+    fn awake_processes(&mut self) {
+        let mut procs: VecDeque<FairPCB> = VecDeque::new();
+
+        self.sleeping.retain(|item| {
+            if item.2 == 0 {
+                procs.push_back(item.0);
+                false
+            } else {
+                true
+            }
+        });
+
+        for item in procs.iter() {
+            self.enqueue_process(*item);
+        }
+    }
+
+    fn update_sleeping_times(&mut self) {
+        let curr_time = self.timestamp;
+
+        for item in self.sleeping.iter_mut() {
+            let time_diff = curr_time.get() - item.1.get();
+            if time_diff > item.2 {
+                item.2 = 0;
+            }
+        }
+    }
+
     fn kill_running(&mut self) -> SyscallResult{
         return if let Some(proc) = self.running {
             if proc.pid == 1 {
@@ -215,6 +250,85 @@ impl FairScheduler {
         } else {
             SyscallResult::NoRunningProcess
         }
+    }
+
+    fn decide_sleep(&mut self, decision: SchedulingDecision) {
+        if let SchedulingDecision::Sleep(time) = decision {
+            self.slept_time = time.get();
+        } else {
+            self.slept_time = 0;
+        }
+    }
+
+    fn wakeup_myself(&mut self) {
+        if self.slept_time != 0 {
+            self.make_timeskip(self.slept_time);
+            self.slept_time = 0;
+        }
+
+        self.update_sleeping_times();
+        self.awake_processes();
+    }
+
+    fn get_sleep_time(&self) -> usize {
+        if self.sleeping.is_empty() {
+            return 0;
+        }
+
+        let mut min_time = usize::MAX;
+
+        for item in self.sleeping.iter() {
+            let ending_timestamp = item.1 + item.2;
+            let remaining = ending_timestamp.get() - self.timestamp.get() + 1;
+            if remaining < min_time {
+                min_time = remaining;
+            }
+        }
+
+        return min_time;
+    }
+
+    fn is_panicd(&self) -> bool {
+        if !self.panicd {
+            return  false;
+        }
+
+        if !self.ready.is_empty() || !self.sleeping.is_empty() || !self.waiting.is_empty() {
+            return true;
+        }
+
+        if let Some(_) = self.running {
+            return true;
+        }
+
+        return false;
+    }
+
+    fn is_blocked(&self) -> Option<SchedulingDecision> {
+        if let Some(_) = self.running {
+            return None;
+        }
+
+        if !self.ready.is_empty() {
+            return None;
+        }
+
+        if self.sleeping.is_empty() && self.waiting.is_empty() {
+            return Some(SchedulingDecision::Done);
+        }
+
+        if self.sleeping.is_empty() && !self.waiting.is_empty() {
+            return Some(SchedulingDecision::Deadlock);
+        }
+
+        if !self.sleeping.is_empty() {
+            // TODO: explain why this is not 0
+            let sleeping_time = self.get_sleep_time();
+            
+            return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
+        }
+
+        return None;
     }
 
 }
@@ -285,6 +399,19 @@ impl Scheduler for FairScheduler {
                 return SyscallResult::Pid(new_proc_pid);
             }
 
+            if let Syscall::Sleep(time) = syscall {
+                if let Some(mut pcb) = self.running {
+                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    self.make_timeskip(passed_time);
+
+                    self.send_process_to_sleep(pcb, time);
+                    self.make_timeskip(1);
+
+                    self.running = None;
+                    return SyscallResult::Success;
+                }
+            }
+
             if let Syscall::Exit = syscall {
                 if let Some(pcb) = self.running {
                     self.make_timeskip(pcb.time_payload - remaining);
@@ -309,8 +436,12 @@ impl Scheduler for FairScheduler {
     }
 
     fn next(&mut self) -> SchedulingDecision {
+        self.wakeup_myself();
 
         if let None = self.running {
+            if self.is_panicd() {
+                return SchedulingDecision::Panic;
+            }
 
             self.dequeue_process();
 
@@ -325,7 +456,12 @@ impl Scheduler for FairScheduler {
                 };
             }
 
-            return SchedulingDecision::Done;
+            if let Some(result) = self.is_blocked() {
+                self.decide_sleep(result);
+                return result;
+            }
+
+            panic!("Fatal error!");
         }
 
         if let Some(mut proc) = self.running {
