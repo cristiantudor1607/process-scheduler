@@ -1,4 +1,5 @@
 use std::num::NonZeroUsize;
+use std::num::ParseIntError;
 use std::ops::Add;
 
 use crate::FairPCB;
@@ -21,6 +22,7 @@ pub struct FairScheduler {
     timestamp: Timestamp,
     panicd: bool,
     slept_time: usize,
+    proc_number: usize,
 }
 
 impl FairScheduler {
@@ -37,6 +39,7 @@ impl FairScheduler {
             timestamp: Timestamp::new(0),
             panicd: false,
             slept_time: 0,
+            proc_number: 0,
         }
     }
 
@@ -65,6 +68,23 @@ impl FairScheduler {
 
     fn inc_pid(&mut self) {
         self.next_pid = self.next_pid.add(1);
+    }
+
+    fn inc_number(&mut self) {
+        self.proc_number += 1;
+    }
+
+    fn dec_number(&mut self) {
+        self.proc_number -= 1;
+    }
+
+    fn recalculate_quanta(&mut self) {
+        if self.proc_number == 0 {
+            return
+        }
+
+        let new_quanta = NonZeroUsize::new(self.cpu_time.get() / self.proc_number).unwrap();
+        self.quanta = new_quanta;
     }
 
     fn get_min_viruntime(&self) -> Option<Vruntime> {
@@ -141,7 +161,10 @@ impl FairScheduler {
             Some(time) => new_proc = self.spawn_process(priority, timestamp, time),
             None => new_proc = self.spawn_process(priority, timestamp, Vruntime::new(0)),
         }
-
+        
+        self.inc_number();
+        self.recalculate_quanta();
+    
         self.enqueue_process(new_proc);
 
         new_proc.pid
@@ -270,6 +293,7 @@ impl Scheduler for FairScheduler {
         }
 
         if let Some(mut pcb) = self.running {
+            
             let passed_time = self.interrupt_process(&mut pcb, 0, StopReason::Expired);
             self.make_timeskip(passed_time);
 
@@ -302,7 +326,12 @@ impl Scheduler for FairScheduler {
             return SchedulingDecision::Done;
         }
 
-        if let Some(proc) = self.running {
+        if let Some(mut proc) = self.running {
+            if proc.time_payload > self.quanta.get() {
+                proc.time_payload = self.quanta.get();
+                self.running = Some(proc);
+            }
+            
             if proc.time_payload < self.min_timeslice {
                 self.enqueue_process(proc);
                 self.dequeue_process();

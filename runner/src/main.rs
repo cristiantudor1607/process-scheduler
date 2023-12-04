@@ -26,7 +26,15 @@ fn main() {
     // });
 
     let logs = Processor::run(cfs(NonZeroUsize::new(10).unwrap(), 1), | process | {
-        for _ in 0..5 {
+        process.fork(
+            |process| {
+                for _ in 0..5 {
+                    process.exec();
+                }
+            },
+            0,
+        );
+        for _ in 0..10 {
             process.exec();
         }
     });
