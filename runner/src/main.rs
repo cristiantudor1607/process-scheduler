@@ -25,7 +25,7 @@ fn main() {
     //     process.exec();
     // });
 
-    let logs = Processor::run(cfs(NonZeroUsize::new(10).unwrap(), 1), | process | {
+    let logs = Processor::run(round_robin(NonZeroUsize::new(10).unwrap(), 1), | process | {
         process.fork(
             |process| {
                 process.wait(1);

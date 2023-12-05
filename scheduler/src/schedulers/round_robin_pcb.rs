@@ -1,4 +1,4 @@
-use crate::{Pid, ProcessState, Process};
+use crate::{Pid, ProcessState, Process, ProcessControlBlock, Event, Timestamp};
 
 /// The Round Robin Scheduler process control block
 #[derive(Clone, Copy)]
@@ -12,7 +12,7 @@ pub struct RoundRobinPCB {
     /// The state of the process
 	pub state: ProcessState,
     /// The time when process spawned
-    pub arrival_time: usize,
+    pub arrival_time: Timestamp,
     /// The process time of existence
     pub total_time: usize,
     /// The time that process spent in execution
@@ -32,7 +32,7 @@ impl RoundRobinPCB {
     /// * `pid` - pid of the new process
     /// * `priority` - priority of the new process
     /// * `arrival` - the timestamp when process was spawned
-    pub fn new(pid: Pid, priority: i8, arrival: usize) -> RoundRobinPCB {
+    pub fn new(pid: Pid, priority: i8, arrival: Timestamp) -> RoundRobinPCB {
         RoundRobinPCB {
             pid,
             priority,
@@ -44,49 +44,6 @@ impl RoundRobinPCB {
             time_payload: 0,
         }
     }
-
-    /// Set the Process Control Block state to `new_state`
-    /// 
-    /// * `new_state` - new state of the process
-	pub fn set_state(&mut self, new_state: ProcessState) {
-		self.state = new_state;
-	}
-
-    /// Set the process state to `Running`
-    pub fn set_run(&mut self) {
-        self.state = ProcessState::Running;
-    }
-
-    /// Set the process state to `Waiting(None)`, which indicates that a process
-    /// is in sleep state
-    pub fn set_sleep(&mut self) {
-        self.state = ProcessState::Waiting { event: None };
-    }
-
-    /// Set the process state to `Waiting(event)`, which indicates the process is
-    /// waiting for `event` to happen
-    pub fn wait_for_event(&mut self, event: usize) {
-        self.state = ProcessState::Waiting { event: Some(event) };
-    }
-
-    /// Add the `time` to the total time that the process spent executing
-    /// 
-    /// * `time` - time that process spent doing instructions
-	pub fn execute(&mut self, time: usize) {
-		self.exec_time += time;
-	}
-
-    /// Increase the time that the process spent sending syscalls
-    /// 
-	/// Counts a new syscall
-	pub fn syscall(&mut self) {
-		self.syscall_time += 1;
-	}
-
-    pub fn load_payload(&mut self, payload: usize) {
-        self.time_payload = payload;
-    }
-
 }
 
 impl Process for RoundRobinPCB {
@@ -109,4 +66,41 @@ impl Process for RoundRobinPCB {
 	fn extra(&self) -> String {
 		String::new()
 	}
+}
+
+impl ProcessControlBlock for RoundRobinPCB {
+    fn inc_priority(&mut self) {}
+    fn dec_priority(&mut self) {}
+
+    fn set_state(&mut self, new_state: ProcessState) {
+        self.state = new_state;
+    }
+
+    fn set_running(&mut self) {
+        self.set_state(ProcessState::Running);
+    }
+
+    fn set_sleeping(&mut self) {
+        self.set_state(ProcessState::Waiting { event: None });
+    }
+
+    fn wait_for_event(&mut self, e : Event) {
+        self.set_state(ProcessState::Waiting { event: Some(e.get()) })
+    }
+
+    fn execute(&mut self, time: usize) {
+        self.exec_time += time;
+    }
+
+    fn syscall(&mut self) {
+        self.syscall_time += 1;
+    }
+
+    fn get_payload(&self) -> usize {
+        self.time_payload
+    }
+
+    fn load_payload(&mut self, payload: usize) {
+        self.time_payload = payload;
+    }
 }
