@@ -171,30 +171,9 @@ impl FairScheduler {
         self.recalculate_quanta();
     
         self.enqueue_process(new_proc);
+        self.make_timeskip(1);
 
         new_proc.pid
-    }
-
-    fn interrupt_process(&self,
-        proc: &mut FairPCB,
-        remaining: usize,
-        reason: StopReason) -> usize {
-        
-        let exec_time: usize;
-
-        if let StopReason::Syscall { .. } = reason {
-            proc.syscall();
-            exec_time = proc.time_payload - remaining - 1;
-            proc.vruntime = proc.vruntime.add(exec_time + 1);
-        } else {
-            exec_time = proc.time_payload - remaining;
-            proc.vruntime = proc.vruntime.add(exec_time);
-        }
-
-        proc.execute(exec_time);
-        proc.load_payload(remaining);
-
-        exec_time
     }
 
     fn enqueue_process(&mut self, mut proc: FairPCB) {
@@ -210,6 +189,7 @@ impl FairScheduler {
     fn send_process_to_sleep(&mut self, mut proc: FairPCB, time: usize) {
         proc.set_sleeping();
         self.sleeping.push((proc, self.timestamp, time));
+        self.make_timeskip(1);
 
         self.dec_number();
         self.recalculate_quanta();
@@ -238,6 +218,7 @@ impl FairScheduler {
     fn block_process(&mut self, mut proc: FairPCB, event: Event) {
         proc.wait_for_event(event);
         self.waiting.push((proc, event));
+        self.make_timeskip(1);
 
         self.dec_number();
         self.recalculate_quanta();
@@ -260,6 +241,7 @@ impl FairScheduler {
             self.inc_number();
         }
 
+        self.make_timeskip(1);
         self.recalculate_quanta();
     }
 
@@ -422,15 +404,13 @@ impl Scheduler for FairScheduler {
                 let new_proc_pid: Pid;
 
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.running = Some(pcb);
 
                     self.make_timeskip(passed_time);
                     new_proc_pid = self.fork(prio, self.timestamp);
-                    self.make_timeskip(1);
                 } else {
                     new_proc_pid = self.fork(prio, self.timestamp);
-                    self.make_timeskip(1);
                 }
 
                 return SyscallResult::Pid(new_proc_pid);
@@ -438,11 +418,10 @@ impl Scheduler for FairScheduler {
             
             if let Syscall::Sleep(time) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
                     
                     self.send_process_to_sleep(pcb, time);
-                    self.make_timeskip(1);
                     
                     self.running = None;
                     return SyscallResult::Success;
@@ -451,11 +430,10 @@ impl Scheduler for FairScheduler {
             
             if let Syscall::Wait(event) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     self.block_process(pcb, Event::new(event));
-                    self.make_timeskip(1);
 
                     self.running = None;
                     return SyscallResult::Success;
@@ -464,14 +442,12 @@ impl Scheduler for FairScheduler {
 
             if let Syscall::Signal(event) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     self.unblock_processes(Event::new(event));
-                    self.make_timeskip(1);
 
                     self.running = Some(pcb);
-
                     return SyscallResult::Success;
                 }
             }
@@ -487,14 +463,12 @@ impl Scheduler for FairScheduler {
 
         if let Some(mut pcb) = self.running {
             
-            let passed_time = self.interrupt_process(&mut pcb, 0, StopReason::Expired);
+            let passed_time = pcb.get_interrupted(0, reason);
             self.make_timeskip(passed_time);
 
             self.running = Some(pcb);
-
             return SyscallResult::Success;
         }
-        
 
         SyscallResult::NoRunningProcess
     }
