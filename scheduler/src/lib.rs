@@ -8,13 +8,9 @@ use std::num::NonZeroUsize;
 
 mod schedulers;
 
-use schedulers::RoundRobinScheduler;
+pub use schedulers::RoundRobinScheduler;
 
-use schedulers::PriorityQueuePCB;
-use schedulers::PriorityQueueScheduler;
-
-pub use schedulers::FairPCB;
-pub use schedulers::FairScheduler;
+pub use schedulers::GeneralProcess;
 
 mod scheduler;
 pub use crate::scheduler::{
@@ -31,8 +27,16 @@ pub use crate::collector::Collector;
 pub use crate::collector::collect_all;
 
 mod process_control_block;
-pub use crate::process_control_block::ProcessControlBlock;
+pub use process_control_block::ProcessControlBlock;
 
+mod scheduler_info;
+pub use crate::scheduler_info::SchedulerInfo;
+pub use crate::scheduler_info::ProcessManager;
+
+mod common_funcs;
+pub use common_funcs::execute_fork;
+pub use common_funcs::execute_exit;
+pub use common_funcs::execute_expired;
 
 
 // TODO import your scheduler here
@@ -65,7 +69,7 @@ pub fn priority_queue(
     timeslice: NonZeroUsize,
     minimum_remaining_timeslice: usize,
 ) -> impl Scheduler {
-    PriorityQueueScheduler::new(timeslice, minimum_remaining_timeslice)
+    RoundRobinScheduler::new(timeslice, minimum_remaining_timeslice)
 }
 
 /// Returns a structure that implements the `Scheduler` trait with a simplified [cfs](https://opensource.com/article/19/2/fair-scheduling-linux) scheduler policy
@@ -79,5 +83,5 @@ pub fn priority_queue(
 ///                                 the `minimum_remaining_timeslice` value.
 #[allow(unused_variables)]
 pub fn cfs(cpu_time: NonZeroUsize, minimum_remaining_timeslice: usize) -> impl Scheduler {
-    FairScheduler::new(cpu_time, minimum_remaining_timeslice)
+    RoundRobinScheduler::new(cpu_time, minimum_remaining_timeslice)
 }

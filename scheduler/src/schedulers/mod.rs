@@ -10,23 +10,11 @@
 //! ```
 //!
 
-mod priority_queue_pcb;
-pub use priority_queue_pcb::PriorityQueuePCB;
-
-mod cfs_pcb;
-pub use cfs_pcb::FairPCB;
-mod cfs;
-pub use cfs::FairScheduler;
+mod process_block;
+pub use process_block::GeneralProcess;
 
 mod round_robin;
 pub use round_robin::RoundRobinScheduler;
 
-mod priority_queue;
-pub use priority_queue::PriorityQueueScheduler;
 
-// mod CFS_pcb;
-// pub use CFS_pcb::FairPCB;
 
-// mod CFS;
-// pub use CFS::FairScheduler;
-// TODO import your schedulers here

@@ -1,7 +1,5 @@
 use std::ops::Add;
 
-use crate::{Pid, ProcessControlBlock, schedulers::PriorityQueuePCB};
-
 pub const MIN_PRIO: i8 = 0;
 pub const MAX_PRIO: i8 = 5;
 
@@ -92,43 +90,4 @@ impl Add<usize> for Vruntime {
         Vruntime::new(self.0 + rhs)
     }
 }
-
-// pub trait SchedulerInfo {
-//     fn get_next_pid(&self) -> Pid;
-//     fn set_next_pid(&mut self, pid: Pid);
-
-//     fn get_timestamp(&self) -> Timestamp;
-//     fn set_timestamp(&mut self, timestamp: Timestamp);
-
-//     fn is_round_robin(&self) -> bool;
-//     fn is_prio_round_robin(&self) -> bool;
-//     fn is_cfs(&self) -> bool;
-// }
-
-// pub fn spawn_process(scheduler: &mut dyn SchedulerInfo,
-//     prio: i8,
-//     timestamp: Timestamp) -> impl ProcessControlBlock {
-    
-//     let pid = scheduler.get_next_pid();
-//     inc_next_pid(scheduler);
-
-//     if scheduler.is_prio_round_robin() {
-//         return PrioRoundRobinPCB::new(pid, prio, timestamp);
-//     }
-
-//     panic!("It should not be called");
-// }
-
-// pub fn inc_next_pid(scheduler: &mut dyn SchedulerInfo) {
-//     let pid = scheduler.get_next_pid();
-//     let new_pid = pid.add(1);
-//     scheduler.set_next_pid(new_pid);
-// }
-
-// pub fn make_timeskip(scheduler: &mut dyn SchedulerInfo, time: usize) {
-//     let timestamp = scheduler.get_timestamp();
-//     let new_timestamp = timestamp.add(time);
-//     scheduler.set_timestamp(new_timestamp);
-// }
-
 
