@@ -1,4 +1,4 @@
-use crate::{ProcessState, Process};
+use crate::{ProcessState, Process, StopReason};
 use crate::common_types::Event;
 
 pub trait ProcessControlBlock: Process {
@@ -15,4 +15,6 @@ pub trait ProcessControlBlock: Process {
 
     fn get_payload(&self) -> usize;
     fn load_payload(&mut self, payload: usize);
+
+    fn get_interrupted(&mut self, remaining: usize, reason: StopReason) -> usize;
 }

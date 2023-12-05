@@ -1,5 +1,3 @@
-use scheduler::cfs;
-use scheduler::priority_queue;
 use scheduler::round_robin;
 use std::num::NonZeroUsize;
 

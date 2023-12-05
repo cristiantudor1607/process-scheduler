@@ -1,4 +1,4 @@
-use crate::{Pid, ProcessState, Process, ProcessControlBlock, Event, Timestamp};
+use crate::{Pid, ProcessState, Process, ProcessControlBlock, Event, Timestamp, StopReason};
 
 /// The Round Robin Scheduler process control block
 #[derive(Clone, Copy)]
@@ -102,5 +102,27 @@ impl ProcessControlBlock for RoundRobinPCB {
 
     fn load_payload(&mut self, payload: usize) {
         self.time_payload = payload;
+    }
+
+    fn get_interrupted(&mut self, remaining: usize, reason: StopReason) -> usize {
+        let exec_time: usize;
+
+        // Count a new syscall if the process was stopped by one
+        if let StopReason::Syscall { .. } = reason {
+            self.syscall();
+            // For processes stopped by syscalls, one unit of time is used for the
+            // syscall, not executed
+            exec_time = self.time_payload - remaining - 1;
+        } else {
+            exec_time = self.time_payload - remaining;
+        }
+
+        // Count the execution time
+        self.execute(exec_time);
+
+        // Update the payload
+        self.load_payload(remaining);
+
+        return exec_time;
     }
 }

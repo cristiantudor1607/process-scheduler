@@ -1,5 +1,5 @@
 use std::ops::Add;
-use crate::{Pid, ProcessState, Timestamp, Event, Process, ProcessControlBlock};
+use crate::{Pid, ProcessState, Timestamp, Event, Process, ProcessControlBlock, StopReason};
 use crate::Vruntime;
 
 
@@ -94,6 +94,24 @@ impl ProcessControlBlock for FairPCB {
     
     fn load_payload(&mut self, payload: usize) {
         self.time_payload = payload;
+    }
+
+    fn get_interrupted(&mut self, remaining: usize, reason: StopReason) -> usize {
+        let exec_time: usize;
+
+        if let StopReason::Syscall { .. } = reason {
+            self.syscall();
+            exec_time = self.time_payload - remaining - 1;
+            self.vruntime = self.vruntime.add(exec_time + 1);
+        } else {
+            exec_time = self.time_payload - remaining;
+            self.vruntime = self.vruntime.add(exec_time);
+        }
+
+        self.execute(exec_time);
+        self.load_payload(remaining);
+
+        exec_time
     }
 }
 

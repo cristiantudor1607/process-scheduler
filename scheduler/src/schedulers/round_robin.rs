@@ -1,6 +1,9 @@
 use std::{num::NonZeroUsize, collections::VecDeque, ops::Add};
-use crate::{scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
-SyscallResult, Scheduler}, Syscall, Collector, collect_all, Event, ProcessControlBlock, Timestamp};
+use crate::scheduler::{Pid, ProcessState, Process, SchedulingDecision, StopReason, 
+SyscallResult, Scheduler};
+use crate::Syscall;
+use crate::{Collector, ProcessControlBlock, collect_all};
+use crate::{Event, Timestamp};
 use crate::RoundRobinPCB;
 
 
@@ -57,17 +60,27 @@ impl RoundRobinScheduler {
 		}
 	}
 
+    /// Increase the `next_pid` field of the RoundRobinScheduler
+	/// 
+	/// Method is called immediatelly after the `next_pid` is used by
+    /// a process
+	/// 
+	/// The `next_pid` field is strongly connected with the creation of 
+	/// processes, so the actions should happen one after another
+	fn inc_pid(&mut self) {
+		self.next_pid = self.next_pid.add(1);
+	}
+
     /// Updates the current timestamp of the scheduler
     /// 
-    /// * `time` - the time passed between current timestamp update
-    ///          and previous timestamp update
+    /// * `time` - the time passed from the last intervention of the scheduler
     fn make_timeskip(&mut self, time: usize) {
         self.timestamp = self.timestamp.add(time);
     }
 
     /// Recomputes the total time for all processes from scheduler,
     /// based on the current timestamp and their arrival time
-    fn update_total_time(&mut self) {
+    fn update_existence_time(&mut self) {
 
         // Update the running process
         if let Some(mut pcb) = self.running {
@@ -93,16 +106,18 @@ impl RoundRobinScheduler {
         }
     }
 
-    /// Increase the `next_pid` field of the RoundRobinScheduler
-	/// 
-	/// Method is called immediatelly after the `next_pid` is used by
-    /// a process
-	/// 
-	/// The `next_pid` field is strongly connected with the creation of 
-	/// processes, so the actions should happen one after another
-	fn inc_pid(&mut self) {
-		self.next_pid = self.next_pid.add(1);
-	}
+    /// Updates the sleeping time of all the processes from sleeping queue
+    fn update_sleeping_times(&mut self) {
+        
+        let curr_time = self.timestamp;
+
+        for item in self.sleeping.iter_mut() {
+            let time_diff = curr_time.get() - item.1.get();
+            if time_diff > item.2 {
+                item.2 = 0;
+            }
+        }   
+    }
 
     /// Creates a new Process Control Block related to a new process, that uses the
     /// `next_pid` as pid
@@ -124,12 +139,14 @@ impl RoundRobinScheduler {
     /// 
     /// * `priority` - the priority of the new process
     /// * `timestamp` - the time when process is created
-    fn fork(&mut self, priority: i8, timestamp: Timestamp) -> RoundRobinPCB {
+    fn fork(&mut self, priority: i8, timestamp: Timestamp) -> Pid {
         /* Spawn a new process and add it to the `ready` queue */
         let new_proc = self.spawn_process(priority, timestamp);
         self.ready.push_back(new_proc);
 
-        new_proc
+        // Fork is a syscall so it consumes one unit of time
+        self.make_timeskip(1);
+        new_proc.pid
     }
 
     /// It kills the running process and returns Success, if it exists, otherwise
@@ -161,43 +178,6 @@ impl RoundRobinScheduler {
     /// The method does not modify the `ready` state of the process
     fn dequeue_ready_process(&mut self) {
         self.running = self.ready.pop_front();
-    }
-
-    // TODO: this don't need to be a method, it can be a function
-
-    /// When a process is interrupted, this method updates the timings
-    /// of the process and returns the time passed between last
-    /// scheduler interference and the current time
-    /// 
-    /// * `running` - running process that is being interrupted
-    /// * `remaining` - number of units of time that the running process
-    ///               didn't use from it's quanta
-    /// * `reason` - the reason why process stopped
-    fn interrupt_process(&self,
-        running: &mut RoundRobinPCB,
-        remaining: usize,
-        reason: StopReason)
-        -> usize {
-        
-        let exec_time: usize;
-
-        // Count a new syscall if the process was stopped by one
-        if let StopReason::Syscall { .. } = reason {
-            running.syscall();
-            // For processes stopped by syscalls, one unit of time is used for the
-            // syscall, not executed
-            exec_time = running.time_payload - remaining - 1;
-        } else {
-            exec_time = running.time_payload - remaining;
-        }
-
-        // Count the execution time
-        running.execute(exec_time);
-
-        // Update the payload
-        running.load_payload(remaining);
-
-        return exec_time;
     }
 
     /// Adds the process to the sleeping queue of the scheduler
@@ -241,19 +221,6 @@ impl RoundRobinScheduler {
         for item in procs.iter() {
             self.enqueue_process(*item);
         }
-    }
-
-    /// Updates the sleeping time of all the processes from sleeping queue
-    fn update_sleeping_times(&mut self) {
-        
-        let curr_time = self.timestamp;
-
-        for item in self.sleeping.iter_mut() {
-            let time_diff = curr_time.get() - item.1.get();
-            if time_diff > item.2 {
-                item.2 = 0;
-            }
-        }   
     }
 
     /// Sends to `ready` queue the processes that finised their sleep time
@@ -429,37 +396,34 @@ impl Scheduler for RoundRobinScheduler {
         if let StopReason::Syscall { syscall, remaining } = reason {
 
             if let Syscall::Fork(prio) = syscall {
-                let new_proc: RoundRobinPCB;
+                let new_proc: Pid;
 
                 if let Some(mut pcb) = self.running {
                     // Fork from a parent process
 
                     // Update the timings
-                    let passsed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let time = pcb.get_interrupted(remaining, reason);
                     self.running = Some(pcb);
                     
                     // Update the timestamp
-                    self.make_timeskip(passsed_time);
+                    self.make_timeskip(time);
 
                     // Spawn the new process
                     new_proc = self.fork(prio, self.timestamp);
-                    self.make_timeskip(1);   // The fork consumes one unit of time
                 } else {
                     // The Fork that creates the process with PID 1 at timestamp 0
 
                     // Spawn the process with PID 1 at time 0
                     new_proc = self.fork(prio, self.timestamp);
-
-                    self.make_timeskip(1); // The fork consumes one unit of time
                 }
 
-                return SyscallResult::Pid(new_proc.pid);
+                return SyscallResult::Pid(new_proc);
             }
 
             if let Syscall::Sleep(time) = syscall {
                 if let Some(mut pcb) = self.running {   
                     // Update the timings anf the timestamp
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     // Sleep the process
@@ -475,7 +439,7 @@ impl Scheduler for RoundRobinScheduler {
             if let Syscall::Wait(event) = syscall {
                 if let Some(mut pcb) = self.running {
                     // Update the timings and the timestamp
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     // Make the process wait for event
@@ -490,7 +454,7 @@ impl Scheduler for RoundRobinScheduler {
             if let Syscall::Signal(event) = syscall {
                 if let Some(mut pcb) = self.running {
                     // Update the timings and the timestamp
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     // Unblock all processes waiting for the event to happen
@@ -514,7 +478,7 @@ impl Scheduler for RoundRobinScheduler {
         // If the process wasn't interrupted by a syscall, it's time expired
         if let Some(mut pcb) = self.running {
             // Update the timings
-            let passed_time = self.interrupt_process(&mut pcb, 0, StopReason::Expired);
+            let passed_time = pcb.get_interrupted(0, reason);
 
             // Update the timestamp
             self.make_timeskip(passed_time);
@@ -601,7 +565,7 @@ impl Scheduler for RoundRobinScheduler {
     }
 
     fn list(&mut self) -> Vec<&dyn Process> {
-        self.update_total_time();
+        self.update_existence_time();
         return collect_all(self);
     }
 }

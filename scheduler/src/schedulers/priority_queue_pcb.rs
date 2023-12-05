@@ -1,4 +1,5 @@
 use crate::ProcessControlBlock;
+use crate::StopReason;
 use crate::scheduler::Process;
 
 use crate::scheduler::Pid;
@@ -129,5 +130,23 @@ impl ProcessControlBlock for PriorityQueuePCB {
 
     fn load_payload(&mut self, payload: usize) {
         self.time_payload = payload;
+    }
+
+    fn get_interrupted(&mut self, remaining: usize, reason: StopReason) -> usize {
+        let exec_time: usize;
+
+        if let StopReason::Syscall { .. } = reason {
+            self.syscall();
+            self.inc_priority();
+            exec_time = self.time_payload - remaining - 1;
+        } else {
+            exec_time = self.time_payload - remaining;
+            self.dec_priority();
+        }
+
+        self.execute(exec_time);
+        self.load_payload(remaining);
+
+        return  exec_time;
     }
 }
