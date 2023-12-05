@@ -341,7 +341,6 @@ impl FairScheduler {
         }
 
         if !self.sleeping.is_empty() {
-            // TODO: explain why this is not 0
             let sleeping_time = self.get_sleep_time();
             
             return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
@@ -498,8 +497,6 @@ impl Scheduler for FairScheduler {
                 self.decide_sleep(result);
                 return result;
             }
-
-            panic!("Fatal error!");
         }
 
         if let Some(mut proc) = self.running {
@@ -530,7 +527,7 @@ impl Scheduler for FairScheduler {
             };
         }
 
-        panic!("Fatal error");
+        SchedulingDecision::Done
     }
 
     fn list(&mut self) -> Vec<&dyn Process> {

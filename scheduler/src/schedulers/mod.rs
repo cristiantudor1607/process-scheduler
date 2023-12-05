@@ -27,9 +27,3 @@ pub use priority_queue::PriorityQueueScheduler;
 mod cfs;
 pub use cfs::FairScheduler;
 
-// mod CFS_pcb;
-// pub use CFS_pcb::FairPCB;
-
-// mod CFS;
-// pub use CFS::FairScheduler;
-// TODO import your schedulers here

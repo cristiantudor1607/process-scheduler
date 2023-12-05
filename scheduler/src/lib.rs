@@ -35,10 +35,6 @@ mod process_control_block;
 pub use crate::process_control_block::ProcessControlBlock;
 
 
-
-// TODO import your scheduler here
-// This example imports the Empty scheduler
-
 /// Returns a structure that implements the `Scheduler` trait with a round robin scheduler policy
 ///
 /// * `timeslice` - the time quanta that a process can run before it is preempted

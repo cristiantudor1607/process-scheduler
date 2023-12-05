@@ -321,7 +321,6 @@ impl RoundRobinScheduler {
         // If there are processes sleeping (no matter the waiting ones), the scheduler
         // should sleep
         if !self.sleeping.is_empty() {
-            // TODO: explain why this is not 0
             let sleeping_time = self.get_sleep_time();
             
             return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
@@ -350,7 +349,6 @@ impl RoundRobinScheduler {
             self.slept_time = 0;
         }
 
-        // TODO: add comment that it uses those 2
         self.update_sleeping_times();
         self.awake_processes();
     }
@@ -555,7 +553,6 @@ impl Scheduler for RoundRobinScheduler {
             // Case 2: The process will continue running
             return SchedulingDecision::Run {
                 pid: proc.pid,
-                // TODO: explain why this is alright
                 timeslice: NonZeroUsize::new(proc.time_payload).unwrap(),
             };
         }

@@ -25,8 +25,6 @@ pub struct PriorityQueueScheduler {
     quanta: NonZeroUsize,
     /// The minimum remaining time a process needs for being replainfied just after
     /// a syscall
-    /// 
-    /// TODO: add explanation from round robin
     min_time: usize,
     /// The pid of the next process that will be spawned
     next_pid: Pid,
