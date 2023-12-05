@@ -85,7 +85,13 @@ pub trait ProcessManager : SchedulerInfo {
     fn enqueue_process(&mut self, proc: &mut GeneralProcess);
 
     fn dequeue_process(&mut self) {
-        let process = self.get_next_process();
+        let mut process = self.get_next_process();
+        // Start running the process if there is one
+        if let Some(mut pcb) = process {
+            pcb.set_running();
+            process = Some(pcb);
+        }
+
         self.set_running(process);
     }
 

@@ -110,7 +110,7 @@ impl ProcessControlBlock for GeneralProcess {
     }
 
     fn set_running(&mut self) {
-        self.set_state(ProcessState::Ready);
+        self.set_state(ProcessState::Running);
     }
 
     fn set_sleeping(&mut self) {
