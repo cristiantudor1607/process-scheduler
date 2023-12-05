@@ -1,6 +1,7 @@
 use crate::{scheduler_info::SchedulerActions, scheduler, SyscallResult, GeneralProcess, ProcessControlBlock, Pid, Syscall, StopReason};
 
 pub fn execute_fork(scheduler: &mut dyn SchedulerActions, remaining: usize,  priority: i8) -> SyscallResult {
+    println!("pid: {}", scheduler.get_next_pid());
     let reason = StopReason::Syscall { syscall: Syscall::Fork(priority), remaining };
     
     let new_pid: Pid;

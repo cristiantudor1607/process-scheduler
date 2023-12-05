@@ -43,23 +43,6 @@ pub trait SchedulerInfo {
 }
 
 pub trait ProcessManager : SchedulerInfo {
-    fn spawn_process(&mut self,
-        prio: i8,
-        opt_vruntime: Option<Vruntime>) -> GeneralProcess {
-        
-        let pid = self.get_next_pid();
-        let arrival_time = self.get_timestamp();
-        let new_proc: GeneralProcess;
-        match opt_vruntime {
-            Some(vruntime) => new_proc = GeneralProcess::with_vruntime(pid, prio, arrival_time, vruntime),
-            None => new_proc = GeneralProcess::new(pid, prio, arrival_time),
-        }
-
-        self.inc_next_pid();
-
-        new_proc
-    }
-
     fn fork(&mut self, prio: i8) -> Pid {
         let vruntime = self.get_min_vruntime();
         let pid = self.get_next_pid();
@@ -75,6 +58,7 @@ pub trait ProcessManager : SchedulerInfo {
             }
         }
 
+        self.inc_next_pid();
         self.inc_number();
         self.recompute_quanta();
         self.enqueue_process(&mut new_proc);
