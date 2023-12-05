@@ -48,10 +48,6 @@ impl PartialEq for Event {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
-
-    fn ne(&self, other: &Self) -> bool {
-        self.0 != other.0
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -70,10 +66,6 @@ impl Vruntime {
 impl PartialEq for Vruntime {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        self.0 != other.0
     }
 }
 

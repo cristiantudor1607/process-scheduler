@@ -1,7 +1,5 @@
-use std::alloc::System;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
-use std::num::ParseIntError;
 use std::ops::Add;
 
 use crate::FairPCB;
@@ -164,11 +162,10 @@ impl FairScheduler {
 
     fn fork(&mut self, priority: i8, timestamp: Timestamp) -> Pid {
         let vruntime = self.get_min_viruntime();
-        let new_proc: FairPCB;
-        match vruntime {
-            Some(time) => new_proc = self.spawn_process(priority, timestamp, time),
-            None => new_proc = self.spawn_process(priority, timestamp, Vruntime::new(0)),
-        }
+        let new_proc: FairPCB = match vruntime {
+            Some(time) => self.spawn_process(priority, timestamp, time),
+            None => self.spawn_process(priority, timestamp, Vruntime::new(0)),
+        };
         
         self.inc_number();
         self.recalculate_quanta();
@@ -278,7 +275,7 @@ impl FairScheduler {
     }
 
     fn kill_running(&mut self) -> SyscallResult{
-        return if let Some(proc) = self.running {
+        if let Some(proc) = self.running {
             if proc.pid == 1 {
                 self.panicd = true;
             }
@@ -325,7 +322,7 @@ impl FairScheduler {
             }
         }
 
-        return min_time;
+        min_time
     }
 
     fn is_panicd(&self) -> bool {
@@ -337,15 +334,15 @@ impl FairScheduler {
             return true;
         }
 
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return true;
         }
 
-        return false;
+        false
     }
 
     fn is_blocked(&self) -> Option<SchedulingDecision> {
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return None;
         }
 
@@ -368,7 +365,7 @@ impl FairScheduler {
             return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
         }
 
-        return None;
+        None
     }
 
 }
@@ -505,7 +502,7 @@ impl Scheduler for FairScheduler {
     fn next(&mut self) -> SchedulingDecision {
         self.wakeup_myself();
 
-        if let None = self.running {
+        if self.running.is_none() {
             if self.is_panicd() {
                 return SchedulingDecision::Panic;
             }

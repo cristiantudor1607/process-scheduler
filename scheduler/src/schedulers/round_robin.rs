@@ -152,7 +152,7 @@ impl RoundRobinScheduler {
     /// It kills the running process and returns Success, if it exists, otherwise
     /// it does nothing and returns NoRunningProcess
     fn kill_running_process(&mut self) -> SyscallResult {
-        return if let Some(proc) = self.running {
+        if let Some(proc) = self.running {
             // Warn about a potential panic
             if proc.pid == Pid::new(1) {
                 self.panicd = true;
@@ -270,7 +270,7 @@ impl RoundRobinScheduler {
             }
         }
 
-        return min_time;
+        min_time
     }
 
     /// Checks if the parent process was killed, and his children still exist,
@@ -284,11 +284,11 @@ impl RoundRobinScheduler {
             return true;
         }
 
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Checks if the scheduler has to sleep, is deadlocked, or all the processes are done,
@@ -297,7 +297,7 @@ impl RoundRobinScheduler {
         // If there is a running process, the is_blocked functon should not be called,
         // based on the flow and logic of the program, but as a measure of safety, it'll
         // return None
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return None;
         }
 
@@ -327,7 +327,7 @@ impl RoundRobinScheduler {
             return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleeping_time).unwrap()));
         }
 
-        return None;
+        None
     }
     
     /// Decides if the scheduler has to sleep, by setting the `slept_time` field of the
@@ -503,7 +503,7 @@ impl Scheduler for RoundRobinScheduler {
         self.wakeup_myself();
 
         // If the last running process expired, then running is None
-        if let None = self.running {
+        if self.running.is_none() {
             
             // If there is no running process, at least one of the queues aren't empty,
             // and the parent process (PID 1) was killed, then there is a panic

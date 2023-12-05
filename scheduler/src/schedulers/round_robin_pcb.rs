@@ -123,6 +123,6 @@ impl ProcessControlBlock for RoundRobinPCB {
         // Update the payload
         self.load_payload(remaining);
 
-        return exec_time;
+        exec_time
     }
 }

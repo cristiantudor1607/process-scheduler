@@ -145,7 +145,7 @@ impl PriorityQueueScheduler {
     }
 
     fn kill_running(&mut self) -> SyscallResult {
-        return if let Some(proc) = self.running {
+        if let Some(proc) = self.running {
             if proc.pid == Pid::new(1) {
                 self.panicd = true;
             }
@@ -177,7 +177,7 @@ impl PriorityQueueScheduler {
         running.execute(exec_time);
         running.load_payload(remaining);
 
-        return  exec_time;
+        exec_time
     }
 
     fn send_process_to_sleep(&mut self, mut proc: PriorityQueuePCB, time: usize) {
@@ -240,7 +240,7 @@ impl PriorityQueueScheduler {
             }
         }
 
-        return min_time;
+        min_time
     }
 
     fn has_ready_processes(&self) -> bool {
@@ -252,7 +252,7 @@ impl PriorityQueueScheduler {
             }
         }
 
-        return false;
+        false
     }
 
     fn is_panicd(&self) -> bool {
@@ -264,15 +264,15 @@ impl PriorityQueueScheduler {
             return true;
         }
 
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return true;
         }
 
-        return false;
+        false
     }
 
     fn is_blocked(&self) -> Option<SchedulingDecision> {
-        if let Some(_) = self.running {
+        if self.running.is_some() {
             return None;
         }
 
@@ -294,7 +294,7 @@ impl PriorityQueueScheduler {
             return Some(SchedulingDecision::Sleep(NonZeroUsize::new(sleep_time).unwrap()));
         }
 
-        return None;
+        None
     }
 
     fn give_time_to_sleep(&mut self, decision: SchedulingDecision) {
@@ -450,7 +450,7 @@ impl Scheduler for PriorityQueueScheduler{
     fn next(&mut self) -> SchedulingDecision {
         self.wakeup_myself();
         
-        if let None = self.running {
+        if self.running.is_none() {
             if self.is_panicd() {
                 return SchedulingDecision::Panic;
             }

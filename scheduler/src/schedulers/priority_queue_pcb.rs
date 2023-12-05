@@ -147,6 +147,6 @@ impl ProcessControlBlock for PriorityQueuePCB {
         self.execute(exec_time);
         self.load_payload(remaining);
 
-        return  exec_time;
+        exec_time
     }
 }

@@ -137,11 +137,7 @@ impl Add<Vruntime> for FairPCB {
 
 impl PartialEq<FairPCB> for FairPCB {
     fn eq(&self, other: &Self) -> bool {
-        return if self.pid != other.pid {
-            return false
-        } else {
-            true
-        }
+        self.pid == other.pid
     }
 }
 
