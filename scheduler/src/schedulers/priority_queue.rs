@@ -113,7 +113,9 @@ impl PriorityQueueScheduler {
         let new_proc = self.spawn_process(priority, timestamp);
         self.enqueue_process(new_proc);
 
-        new_proc.pid()
+        self.make_timeskip(1);
+
+        new_proc.pid
     }
 
     fn enqueue_process(&mut self, mut proc: PriorityQueuePCB) {
@@ -184,6 +186,7 @@ impl PriorityQueueScheduler {
         proc.set_sleeping();
 
         self.sleeping.push((proc, self.timestamp, time));
+        self.make_timeskip(1);
     }
 
     fn awake_processes(&mut self) {
@@ -206,6 +209,8 @@ impl PriorityQueueScheduler {
     fn block_process(&mut self, mut proc: PriorityQueuePCB, event: Event) {
         proc.wait_for_event(event);
         self.waiting.push((proc, event));
+
+        self.make_timeskip(1);
     }
 
     fn unblock_processes(&mut self, event: Event) {
@@ -223,6 +228,8 @@ impl PriorityQueueScheduler {
         for item in procs.iter() {
             self.enqueue_process(*item);
         }
+
+        self.make_timeskip(1);
     }
 
     fn get_sleep_time(&self) -> usize {
@@ -371,16 +378,14 @@ impl Scheduler for PriorityQueueScheduler{
 
             if let Syscall::Fork(prio) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let time = pcb.get_interrupted(remaining, reason);
                     self.running = Some(pcb);
 
-                    self.make_timeskip(passed_time);
+                    self.make_timeskip(time);
 
                     new_proc_pid = self.fork(prio, self.timestamp);
-                    self.make_timeskip(1);
                 } else {
                     new_proc_pid = self.fork(prio, self.timestamp);
-                    self.make_timeskip(1);
                 }
 
                 return SyscallResult::Pid(new_proc_pid);
@@ -388,12 +393,11 @@ impl Scheduler for PriorityQueueScheduler{
 
             if let Syscall::Sleep(time) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process(&mut pcb, remaining, reason);
+                    let passed_time = pcb.get_interrupted(remaining, reason);
                     self.make_timeskip(passed_time);
 
                     self.send_process_to_sleep(pcb, time);
-                    self.make_timeskip(1);
-
+                    
                     self.running = None;
                     return SyscallResult::Success;
                 }
@@ -405,7 +409,6 @@ impl Scheduler for PriorityQueueScheduler{
                     self.make_timeskip(passed_time);
 
                     self.block_process(pcb, Event::new(event));
-                    self.make_timeskip(1);
 
                     self.running = None;
                     return SyscallResult::Success;
@@ -414,13 +417,12 @@ impl Scheduler for PriorityQueueScheduler{
 
             if let Syscall::Signal(event) = syscall {
                 if let Some(mut pcb) = self.running {
-                    let passed_time = self.interrupt_process( &mut pcb, remaining, reason);
-                    self.make_timeskip(passed_time);
+                    let time = self.interrupt_process( &mut pcb, remaining, reason);
+                    self.make_timeskip(time);
 
                     self.unblock_processes(Event::new(event));
-                    self.make_timeskip(1);
-                    self.running = Some(pcb);
 
+                    self.running = Some(pcb);
                     return SyscallResult::Success;
                 }
             }
@@ -435,9 +437,9 @@ impl Scheduler for PriorityQueueScheduler{
         }
 
         if let Some(mut pcb) = self.running {
-            let passed_time = self.interrupt_process(&mut pcb, 0, reason);
+            let time = self.interrupt_process(&mut pcb, 0, reason);
 
-            self.make_timeskip(passed_time);
+            self.make_timeskip(time);
             self.running = Some(pcb);
 
             return SyscallResult::Success;
@@ -472,8 +474,6 @@ impl Scheduler for PriorityQueueScheduler{
                 self.give_time_to_sleep(result);
                 return result;
             }
-
-            panic!("Fatal error");
         }
 
         if let Some(proc) = self.running {

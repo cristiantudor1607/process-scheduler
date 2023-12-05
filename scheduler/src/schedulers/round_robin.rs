@@ -401,7 +401,7 @@ impl Collector for RoundRobinScheduler {
 
 impl Scheduler for RoundRobinScheduler {
     fn stop(&mut self, reason: StopReason) -> SyscallResult {
-        // Process stopped by a system call
+        // Process was stopped by a syscall
         if let StopReason::Syscall { syscall, remaining } = reason {
 
             if let Syscall::Fork(prio) = syscall {
@@ -481,7 +481,7 @@ impl Scheduler for RoundRobinScheduler {
             }
         }
 
-        // If the process wasn't interrupted by a syscall, it's time expired
+        // Process consumed it's quanta and is preempted
         if let Some(mut pcb) = self.running {
             // Update the timings
             let passed_time = pcb.get_interrupted(0, reason);
@@ -489,9 +489,7 @@ impl Scheduler for RoundRobinScheduler {
             // Update the timestamp
             self.make_timeskip(passed_time);
 
-            // Make changes visibile
             self.running = Some(pcb);
-
             return SyscallResult::Success;
         }
 
@@ -520,9 +518,8 @@ impl Scheduler for RoundRobinScheduler {
                 pcb.load_payload(self.quanta.get());
                 self.running = Some(pcb);
                 
+                // We just set running to something, so unwrap won't give a panic
                 return SchedulingDecision::Run {
-                    // It's safe to use unwrap
-                    // TODO: add explanation
                     pid: self.running.unwrap().pid,
                     timeslice: NonZeroUsize::new(self.running.unwrap().time_payload).unwrap(),
                 };
@@ -532,9 +529,6 @@ impl Scheduler for RoundRobinScheduler {
                 self.decide_sleep(result);
                 return result;
             }
-
-            // It shouldn't reach this point
-            panic!("Fatal error");
         }
 
         if let Some(proc) = self.running {
@@ -566,7 +560,7 @@ impl Scheduler for RoundRobinScheduler {
             };
         }
 
-        panic!("Fatal error");
+        SchedulingDecision::Done
 
     }
 
