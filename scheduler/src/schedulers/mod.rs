@@ -9,20 +9,23 @@
 //! pub use scheduler_name::SchedulerName;
 //! ```
 //!
+mod round_robin_pcb;
+pub use round_robin_pcb::RoundRobinPCB;
 
 mod priority_queue_pcb;
 pub use priority_queue_pcb::PriorityQueuePCB;
 
 mod cfs_pcb;
 pub use cfs_pcb::FairPCB;
-mod cfs;
-pub use cfs::FairScheduler;
 
 mod round_robin;
 pub use round_robin::RoundRobinScheduler;
 
 mod priority_queue;
 pub use priority_queue::PriorityQueueScheduler;
+
+mod cfs;
+pub use cfs::FairScheduler;
 
 // mod CFS_pcb;
 // pub use CFS_pcb::FairPCB;

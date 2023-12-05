@@ -8,7 +8,8 @@ use std::num::NonZeroUsize;
 
 mod schedulers;
 
-use schedulers::RoundRobinScheduler;
+pub use schedulers::RoundRobinPCB;
+pub use schedulers::RoundRobinScheduler;
 
 use schedulers::PriorityQueuePCB;
 use schedulers::PriorityQueueScheduler;
