@@ -35,7 +35,7 @@ pub fn execute_expired(scheduler: &mut dyn SchedulerActions) -> SyscallResult {
         let time = pcb.get_interrupted(0, reason);
         scheduler.make_timeskip(time);
         
-        scheduler.set_running(None);
+        scheduler.set_running(Some(pcb));
         SyscallResult::Success
     } else {
         SyscallResult::NoRunningProcess
